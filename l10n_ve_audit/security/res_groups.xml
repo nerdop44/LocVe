@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="group_fiscal_auditor" model="res.groups">
+        <field name="name">Auditor Fiscal (SENIAT)</field>
+        <field name="category_id" ref="base.module_category_accounting_accounting"/>
+        <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+        <field name="comment">Acceso restringido y de solo lectura a la contabilidad y tablas de logs para auditorías del SENIAT.</field>
+    </record>
+</odoo>

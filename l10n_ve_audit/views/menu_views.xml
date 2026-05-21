@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Menú Tabla de Auditoría en la barra de Contabilidad -->
+    <menuitem 
+        id="menu_l10n_ve_audit_log" 
+        name="Auditoría Fiscal (SENIAT)" 
+        parent="account.menu_finance" 
+        sequence="98"
+        groups="l10n_ve_audit.group_fiscal_auditor,base.group_system"
+        action="action_l10n_ve_audit_log"
+    />
+</odoo>
