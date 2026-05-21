@@ -20,10 +20,10 @@
                         <!-- Estilos personalizados -->
                         <style>
                             .title-box {
-                                border: 2px solid #721c24;
-                                background-color: #f8d7da;
-                                color: #721c24;
-                                padding: 8px;
+                                border: 2px solid #333;
+                                background-color: transparent;
+                                color: #333;
+                                padding: 12px 8px;
                                 border-radius: 4px;
                                 text-align: center;
                                 font-weight: bold;
@@ -75,9 +75,7 @@
                             </div>
                             <div class="col-6 text-end">
                                 <div class="title-box">
-                                    <h4 style="margin: 0; font-size: 16px; font-weight: bold;">DOCUMENTO NO FISCAL</h4>
-                                    <h5 style="margin: 3px 0 0 0; font-size: 13px; font-weight: bold;">GUÍA DE DESPACHO</h5>
-                                    <span style="font-size: 11px;">SIN DERECHO A CRÉDITO FISCAL</span>
+                                    <h4 style="margin: 0; font-size: 16px; font-weight: bold; letter-spacing: 1px;">GUÍA DE DESPACHO</h4>
                                 </div>
                                 <div>
                                     <strong>NRO. GUÍA: </strong><span style="font-size: 14px; color: #721c24; font-weight: bold;" t-field="move.l10n_ve_guide_number"/><br/>
@@ -141,7 +139,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <t t-foreach="move.invoice_line_ids.filtered(lambda l: not l.display_type)" t-as="line">
+                                <t t-foreach="move.invoice_line_ids.filtered(lambda l: l.display_type not in ('line_section', 'line_note'))" t-as="line">
                                     <t t-if="line.quantity > 0">
                                         <tr>
                                             <td style="text-align: center;"><span t-field="line.product_id.default_code"/></td>
@@ -185,6 +183,9 @@
 
                         <!-- Nota de Pie de Página -->
                         <div class="footer-note">
+                            <div style="font-size: 11px; color: #555555; text-align: center; font-weight: bold; margin-bottom: 8px; width: 100%;">
+                                *** DOCUMENTO NO FISCAL — SIN DERECHO A CRÉDITO FISCAL ***
+                            </div>
                             <span>Esta guía ampara única y exclusivamente el traslado de los bienes aquí descritos. No representa factura ni nota de entrega. Prohibida su venta. Exigido por las Providencias del SENIAT.</span>
                         </div>
                     </div>
