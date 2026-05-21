@@ -245,27 +245,21 @@ class ResCurrency(models.Model):
             dolar_tag = html.find('div', {'id': 'dolar'})
             if not dolar_tag:
                 return False
-            dolar = str(dolar_tag.find('strong')).split()
-            if len(dolar) < 2:
-                return False
-            dolar = str.replace(dolar[1], '.', '')
             try:
-                val_usd = float(str.replace(dolar, ',', '.'))
-            except ValueError:
+                # Extraemos el texto del tag strong directamente, limpiamos y convertimos
+                val_usd_str = dolar_tag.find('strong').text.strip()
+                val_usd = float(val_usd_str.replace('.', '').replace(',', '.'))
+            except Exception:
                 return False
 
             euro_tag = html.find('div', {'id': 'euro'})
             if not euro_tag:
                 val_eur = 0.0
             else:
-                euro = str(euro_tag.find('strong')).split()
-                if len(euro) > 1:
-                    euro = str.replace(euro[1], '.', '')
-                    try:
-                        val_eur = float(str.replace(euro, ',', '.'))
-                    except ValueError:
-                        val_eur = 0.0
-                else:
+                try:
+                    val_eur_str = euro_tag.find('strong').text.strip()
+                    val_eur = float(val_eur_str.replace('.', '').replace(',', '.'))
+                except Exception:
                     val_eur = 0.0
 
             curr_name = self.name
