@@ -18,15 +18,18 @@
             <!-- Bloque de Tasa: Bajo el Diario -->
             <xpath expr="//field[@name='journal_id']" position="after">
                 <label for="tax_today" string="Tasa de creación"
-                       invisible="move_type not in ('out_invoice', 'out_refund', 'in_invoice', 'in_refund')"/>
+                       invisible="move_type not in ('out_invoice', 'out_refund', 'in_invoice', 'in_refund')"
+                       groups="account.group_account_manager"/>
                 <div class="d-flex align-items-center gap-2"
-                     invisible="move_type not in ('out_invoice', 'out_refund', 'in_invoice', 'in_refund')">
+                     invisible="move_type not in ('out_invoice', 'out_refund', 'in_invoice', 'in_refund')"
+                     groups="account.group_account_manager">
                     <field name="tax_today" nolabel="1" readonly="not tax_today_edited" force_save="1"/>
                     <span class="text-muted small">Cambio manual</span>
                     <field name="tax_today_edited" nolabel="1" widget="boolean_toggle"/>
                 </div>
                 <field name="acuerdo_moneda" string="Factura en Bs. Fijo"
-                       invisible="move_type not in ('out_invoice', 'out_refund', 'in_invoice', 'in_refund')"/>
+                       invisible="move_type not in ('out_invoice', 'out_refund', 'in_invoice', 'in_refund')"
+                       groups="account.group_account_manager"/>
             </xpath>
 
             <!-- Líneas de Factura: Precio y Subtotal en USD -->

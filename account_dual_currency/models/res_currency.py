@@ -77,6 +77,13 @@ class ResCurrency(models.Model):
     # Pachacutec: DolarToday removido, solo se permite BCV.
     # server = fields.Selection([('bcv', 'BCV'), ('dolar_today', 'Dolar Today Promedio')], string='Servidor', default='bcv')
     act_productos = fields.Boolean(string="Actualizar Productos", default=False)
+    can_edit_rates = fields.Boolean(compute='_compute_can_edit_rates')
+
+    def _compute_can_edit_rates(self):
+        is_manager = self.env.user.has_group('account.group_account_manager')
+        is_no_one = self.env.user.has_group('base.group_no_one')
+        for rec in self:
+            rec.can_edit_rates = is_manager and is_no_one
 
     @api.depends('rate_ids.rate', 'rate')
     def _compute_inverse_rate(self):
@@ -277,7 +284,15 @@ class ResCurrency(models.Model):
 
     def actualizar_tasa(self):
         for rec in self:
-            # Pachacutec: Forzamos BCV directamente.
+            # Si rec es VEF o VES (monedas locales/alternas), delegamos a las extranjeras
+            if rec.name in ['VES', 'VEF']:
+                monedas_ext = self.env['res.currency'].search([('name', 'in', ['USD', 'EUR']), ('active', '=', True)])
+                # Propagar contexto de origen (cron o botón)
+                for m in monedas_ext.with_context(self.env.context):
+                    m.actualizar_tasa()
+                continue
+
+            # Para monedas extranjeras (USD, EUR), se calcula su tasa BCV (ej: 523.675)
             nueva_tasa_bcv = rec.get_bcv()
 
             if nueva_tasa_bcv:
@@ -285,16 +300,19 @@ class ResCurrency(models.Model):
                 company_ids = self.env['res.company'].search([])
                 today = fields.Date.context_today(self)
                 
+                # Definir contexto origen para auditoría
+                orig_ctx = 'from_button' if not self.env.context.get('from_cron') else 'from_cron'
+                
                 for c in company_ids:
-                    base_bcv = c.currency_id.get_bcv() or 1.0
-                    odoo_rate = base_bcv / nueva_tasa_bcv
+                    # En Odoo (base Bolívar en tasas), la tasa de la moneda fuerte es siempre 1.0 / tasa_bcv
+                    odoo_rate = 1.0 / nueva_tasa_bcv
                     
                     tasa_actual = self.env['res.currency.rate'].sudo().search(
                         [('name', '=', today), ('currency_id', '=', rec.id), ('company_id', '=', c.id)], limit=1)
                     
                     nueva = False
                     if not tasa_actual:
-                        self.env['res.currency.rate'].sudo().create({
+                        self.env['res.currency.rate'].sudo().with_context({orig_ctx: True}).create({
                                 'currency_id': rec.id,
                                 'name': today,
                                 'rate': odoo_rate,
@@ -303,7 +321,9 @@ class ResCurrency(models.Model):
                         nueva = True
                     else:
                         if abs(tasa_actual.rate - odoo_rate) > 0.000001:
-                            tasa_actual.rate = odoo_rate
+                            tasa_actual.sudo().with_context({orig_ctx: True}).write({
+                                'rate': odoo_rate
+                            })
                             nueva = True
 
                     if nueva:
@@ -320,7 +340,8 @@ class ResCurrency(models.Model):
 
     @api.model
     def _cron_actualizar_tasa(self):
-        monedas = self.env['res.currency'].search([('active', '=', True), ('sincronizar', '=',True)])
+        # Pasar contexto from_cron=True para el registro de auditoría
+        monedas = self.env['res.currency'].with_context(from_cron=True).search([('active', '=', True), ('sincronizar', '=', True)])
         for m in monedas:
             m.actualizar_tasa()
 
@@ -328,40 +349,21 @@ class ResCurrency(models.Model):
     def get_trm_systray(self):
         company_id = self.env.company
         
-        # Obtener las dos monedas principales usando comodines universales
-        usd_currency = self.env['res.currency'].search([('name', 'in', ['USD', 'US$'])], limit=1)
-        ves_currency = self.env['res.currency'].search([('name', 'in', ['VES', 'VEF'])], limit=1)
-        
-        if not usd_currency or not ves_currency:
-            return 1.0
-            
-        # Determinar si la compañia es base USD o base VES
-        if company_id.currency_id.id == usd_currency.id:
-            # Base USD
-            rate_record = self.env['res.currency.rate'].sudo().search([
-                ('currency_id', '=', ves_currency.id),
-                '|', ('company_id', '=', company_id.id), ('company_id', '=', False)
-            ], order='name desc', limit=1)
-            tasa = rate_record.rate if rate_record else ves_currency.rate
-            
-        elif company_id.currency_id.id == ves_currency.id:
-            # Base VES, la tasa de USD es su valor inverso
-            rate_record = self.env['res.currency.rate'].sudo().search([
-                ('currency_id', '=', usd_currency.id),
-                '|', ('company_id', '=', company_id.id), ('company_id', '=', False)
-            ], order='name desc', limit=1)
-            
-            if rate_record:
-                tasa = 1.0 / rate_record.rate if rate_record.rate > 0 else 1.0
-            else:
-                tasa = usd_currency.inverse_rate if usd_currency.inverse_rate > 0 else (1.0 / usd_currency.rate if usd_currency.rate > 0 else 1.0)
+        # Intentar obtener la tasa calculada de la moneda alterna de la compañía
+        if hasattr(company_id, 'currency_id_dif') and company_id.currency_id_dif:
+            tasa = company_id.currency_id_dif.rate
         else:
-            diff = company_id.currency_id_dif
-            rate_record = self.env['res.currency.rate'].sudo().search([
-                ('currency_id', '=', diff.id),
-                '|', ('company_id', '=', company_id.id), ('company_id', '=', False)
-            ], order='name desc', limit=1)
-            tasa = rate_record.rate if rate_record else diff.rate
+            # Fallback en caso de que no esté configurada
+            usd_currency = self.env['res.currency'].search([('name', 'in', ['USD', 'US$'])], limit=1)
+            ves_currency = self.env['res.currency'].search([('name', 'in', ['VES', 'VEF'])], limit=1)
+            
+            if not usd_currency or not ves_currency:
+                return 1.0
+                
+            if company_id.currency_id.id == usd_currency.id:
+                tasa = ves_currency.rate
+            else:
+                tasa = usd_currency.rate
             
         if tasa < 1.0 and tasa > 0.0:
             tasa = 1.0 / tasa
