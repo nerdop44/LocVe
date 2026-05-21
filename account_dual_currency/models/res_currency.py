@@ -72,7 +72,6 @@ class ResCurrency(models.Model):
     # --- Business Logic (Restored) ---
 
     facturas_por_actualizar = fields.Boolean(compute="_facturas_por_actualizar")
-    inverse_rate = fields.Float(string='Tasa Inversa', compute='_compute_inverse_rate', digits=(12, 4))
     sincronizar = fields.Boolean(string="Sincronizar", default=False)
     # Pachacutec: DolarToday removido, solo se permite BCV.
     # server = fields.Selection([('bcv', 'BCV'), ('dolar_today', 'Dolar Today Promedio')], string='Servidor', default='bcv')
@@ -84,15 +83,6 @@ class ResCurrency(models.Model):
         is_no_one = self.env.user.has_group('base.group_no_one')
         for rec in self:
             rec.can_edit_rates = is_manager and is_no_one
-
-    @api.depends('rate_ids.rate', 'rate')
-    def _compute_inverse_rate(self):
-        for rec in self:
-            if rec.rate > 0:
-                rec.inverse_rate = 1.0 / rec.rate
-            else:
-                rec.inverse_rate = 0.0
-
 
     def _convert(self, from_amount, to_currency, company=None, date=None, round=True, custom_rate=0.0):
         self, to_currency = self or to_currency, to_currency or self
