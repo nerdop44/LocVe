@@ -23,6 +23,7 @@ class AccountMove(models.Model):
     last_payment_date = fields.Date(compute="_compute_payment_dates", store=True)
     first_payment_date = fields.Date(compute="_compute_payment_dates", store=True)
     is_contingency = fields.Boolean(related="journal_id.is_contingency")
+    l10n_ve_is_free_form = fields.Boolean(related="journal_id.l10n_ve_is_free_form", string="Is Free Form Journal", readonly=True)
 
     next_installment_date = fields.Date(compute="_compute_next_installment_date")
 
@@ -218,6 +219,8 @@ class AccountMove(models.Model):
             correlative = self.journal_id.series_correlative_sequence_id
 
             if not correlative:
+                if self.journal_id.l10n_ve_is_free_form:
+                    raise UserError(_("El diario de formas libres '%s' debe tener configurada una secuencia de control de series para poder asignar el correlativo fiscal.") % self.journal_id.name)
                 raise UserError(_("The sale's series sequence must be in the selected journal."))
             return correlative.next_by_id(correlative.id)
 
@@ -307,3 +310,58 @@ class AccountMove(models.Model):
                 'default_l10n_ve_ending_point': ending_point,
             }
         }
+
+    @api.constrains('reversed_entry_id', 'move_type', 'journal_id', 'state')
+    def _check_free_form_refund_constraints(self):
+        for move in self:
+            if move.move_type == 'out_refund' and move.journal_id.l10n_ve_is_free_form:
+                # 1. Requiere factura afectada
+                if not move.reversed_entry_id:
+                    raise ValidationError(_(
+                        "Las Notas de Crédito sobre Formas Libres requieren obligatoriamente una Factura Afectada asociada."
+                    ))
+                
+                # 2. No se permiten cruces cruzados: origen debe ser forma libre también
+                if not move.reversed_entry_id.journal_id.l10n_ve_is_free_form:
+                    raise ValidationError(_(
+                        "No se puede emitir una Nota de Crédito en Forma Libre para una factura original que no se emitió bajo el mismo medio (Forma Libre)."
+                    ))
+                
+                # 3. Comprobar si la factura afectada proviene de POS (máquina fiscal)
+                pos_order = self.env['pos.order'].search([('account_move', '=', move.reversed_entry_id.id)], limit=1)
+                if pos_order:
+                    raise ValidationError(_(
+                        "No se puede aplicar una Nota de Crédito en Forma Libre a una factura originada en Punto de Venta (Máquina Fiscal)."
+                    ))
+
+    @api.constrains('invoice_line_ids', 'invoice_line_ids.tax_ids')
+    def _check_refund_taxes(self):
+        for move in self:
+            if move.move_type == 'out_refund' and move.journal_id.l10n_ve_is_free_form and move.reversed_entry_id:
+                orig_taxes = {}
+                for line in move.reversed_entry_id.invoice_line_ids:
+                    if line.product_id:
+                        orig_taxes[line.product_id.id] = line.tax_ids.ids
+                
+                for line in move.invoice_line_ids:
+                    if line.display_type == 'product' and line.product_id:
+                        orig_tax = orig_taxes.get(line.product_id.id)
+                        if orig_tax is not None and set(line.tax_ids.ids) != set(orig_tax):
+                            raise ValidationError(_(
+                                "No se permite modificar los impuestos en una Nota de Crédito sobre Forma Libre. "
+                                "Debe mantener la alícuota fiscal histórica de la factura original."
+                            ))
+
+    def action_open_void_control_wizard(self):
+        self.ensure_one()
+        return {
+            'name': 'Anular Correlativo por Atasco',
+            'type': 'ir.actions.act_window',
+            'res_model': 'l10n_ve.void.control.wizard',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {
+                'default_move_id': self.id,
+            }
+        }
+

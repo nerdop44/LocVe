@@ -25,6 +25,15 @@ class AccountMove(models.Model):
                            f"Correlativo/Control: {move.correlative or 'No asignado'}. "
                            f"Cliente/Proveedor: {move.partner_id.name} (RIF: {move.partner_id.vat or 'S/R'}). "
                            f"Monto Total: {move.amount_total} Bs / {move.amount_total_usd if hasattr(move, 'amount_total_usd') else 0} USD.")
+                
+                if move.move_type == 'out_refund' and move.journal_id.l10n_ve_is_free_form:
+                    details += f" [FORMA LIBRE NC]"
+                    if move.reversed_entry_id:
+                        details += (f" Factura Afectada: {move.reversed_entry_id.name} "
+                                    f"(Control Afectado: {move.reversed_entry_id.correlative or 'Ninguno'}, "
+                                    f"Fecha Afectada: {move.reversed_entry_id.invoice_date}). "
+                                    f"Motivo Reversión: {move.ref or 'No especificado'}.")
+                
                 self.env['l10n_ve.audit.log'].log_event('post', move, details)
         return post_result
 

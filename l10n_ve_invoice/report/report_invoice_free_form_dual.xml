@@ -106,13 +106,20 @@
                         <!-- Col 2: Invoice Info (5/12) - Right Aligned -->
                         <div class="col-5 text-end">
                             <t t-if="o.move_type in ['out_refund', 'in_refund']">
-                                <span><strong>Nro de Nota de Crédito: </strong><span t-if="o.name != '/'" t-out="o.name"/></span>
+                                <h4 style="color: #000; font-weight: bold; margin-bottom: 5px;">NOTA DE CRÉDITO</h4>
+                                <span><strong>Nro. Control:</strong> <t t-if="o.correlative" t-out="o.correlative"/><t t-else="">No asignado</t></span>
                                 <br/>
-                                <span><strong>Factura Afectada: </strong><span t-out="o.reversed_entry_id.name"/></span>
+                                <span><strong>Nro. Nota Crédito:</strong> <t t-if="o.name != '/'" t-out="o.name"/></span>
                                 <br/>
-                                <span t-if="o.reversed_entry_id.correlative"><strong>Nro Control: </strong><span t-out="o.reversed_entry_id.correlative"/></span>
-                                <br/>
-                                <span><strong>Fecha Factura: </strong><span t-if="o.reversed_entry_id.invoice_date" t-out="o.reversed_entry_id.invoice_date.strftime('%d/%m/%Y')"/></span>
+                                
+                                <!-- Recuadro elegante de Trazabilidad de Factura Afectada -->
+                                <div style="border: 1px solid #ccc; padding: 6px; margin-top: 6px; border-radius: 4px; background-color: #f9f9f9; text-align: left; font-size: 0.9em; line-height: 1.2;">
+                                    <strong style="display: block; border-bottom: 1px solid #ccc; margin-bottom: 4px; font-size: 0.95em;">FACTURA AFECTADA:</strong>
+                                    <span><strong>Nro. Factura:</strong> <t t-out="o.reversed_entry_id.name"/></span><br/>
+                                    <span><strong>Nro. Control:</strong> <t t-out="o.reversed_entry_id.correlative"/></span><br/>
+                                    <span><strong>Fecha Emisión:</strong> <t t-if="o.reversed_entry_id.invoice_date" t-out="o.reversed_entry_id.invoice_date.strftime('%d/%m/%Y')"/></span><br/>
+                                    <span><strong>Motivo:</strong> <t t-out="o.ref or 'No especificado'"/></span>
+                                </div>
                             </t>
                             <t t-elif="o.journal_id.is_debit">
                                  <span><strong>Nota de Débito: </strong><span t-if="o.name != '/'" t-out="o.name"/></span>

@@ -8,6 +8,7 @@
             <xpath expr="//field[@name='type']" position="after">
                <field name="is_contingency" invisible="type != 'sale'"/>
                <field name="is_debit" invisible="type != 'sale'"/>
+               <field name="l10n_ve_is_free_form" invisible="type != 'sale'"/>
             </xpath>
             <xpath expr="//field[@name='type']" position="after">
                 <field name="series_correlative_sequence_id" 

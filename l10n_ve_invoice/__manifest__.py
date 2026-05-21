@@ -27,6 +27,7 @@
         'views/menu.xml',
         'wizard/accounting_reports_views.xml',
         'wizard/l10n_ve_delivery_guide_wizard_views.xml',
+        'wizard/l10n_ve_void_control_wizard_views.xml',
     ],
     'images': ['static/description/icon.png'],
     'application': True,

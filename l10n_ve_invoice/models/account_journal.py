@@ -14,3 +14,10 @@ class AccountJournal(models.Model):
 
     is_contingency = fields.Boolean(default=False, tracking=True)
     is_debit = fields.Boolean(default=False, tracking=True)
+    l10n_ve_is_free_form = fields.Boolean(
+        string="Is Free Form?",
+        default=False,
+        help="Check this option if this journal prints on pre-printed free-form sheets (Formas Libres).",
+        tracking=True
+    )
+

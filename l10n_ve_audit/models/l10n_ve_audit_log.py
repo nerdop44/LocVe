@@ -19,6 +19,7 @@ class L10nVeAuditLog(models.Model):
         ('rate_create', 'Creación de Tasa BCV'),
         ('rate_write', 'Modificación de Tasa BCV'),
         ('rate_unlink', 'Eliminación de Tasa BCV'),
+        ('control_void', 'Anulación de Control de Forma Libre'),
     ], string="Acción", readonly=True, required=True)
     res_model = fields.Char(string="Modelo Técnico", readonly=True, required=True)
     res_id = fields.Integer(string="ID del Registro", readonly=True, required=True)
