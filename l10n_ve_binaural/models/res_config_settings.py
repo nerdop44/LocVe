@@ -16,7 +16,7 @@ class ResConfigSettings(models.TransientModel):
     group_sales_invoicing_series = fields.Boolean(
         related="company_id.group_sales_invoicing_series",
         readonly=False,
-        implied_group="l10n_ve_binaural.group_sales_invoicing_series",
+        implied_group="l10n_ve_invoice.group_sales_invoicing_series",
     )
 
     @api.onchange("group_sales_invoicing_series")

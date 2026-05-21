@@ -13,7 +13,7 @@ class IrActWindow(models.Model):
         values = super().read(fields=fields, load=load)
         for result in values:
             if result.get("id") == self.env.ref("account.action_move_out_refund_type").id:
-                if not self.env.user.has_group(self._module + ".create_out_refund"):
+                if not self.env.user.has_group("l10n_ve_invoice.create_out_refund"):
                     context = "{'default_move_type': 'out_refund', 'default_filter_partner': 'customer', 'create': 0}"
                     result["context"] = context
                     continue
