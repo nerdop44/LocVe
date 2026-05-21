@@ -2,19 +2,18 @@
 <odoo>
     <record id="action_report_delivery_guide" model="ir.actions.report">
         <field name="name">Guía de Despacho Fiscal</field>
-        <field name="model">stock.picking</field>
+        <field name="model">account.move</field>
         <field name="report_type">qweb-pdf</field>
         <field name="report_name">l10n_ve_invoice.report_delivery_guide_document</field>
         <field name="report_file">l10n_ve_invoice.report_delivery_guide_document</field>
         <field name="print_report_name">'Guia_Despacho_%s' % (object.l10n_ve_guide_number or object.name or '')</field>
-        <field name="binding_model_id" ref="stock.model_stock_picking"/>
         <field name="binding_type">report</field>
     </record>
 
     <template id="report_delivery_guide_document">
         <t t-call="web.html_container">
-            <t t-foreach="docs" t-as="picking">
-                <div class="article" t-att-data-oe-model="picking._name" t-att-data-oe-id="picking.id" style="font-family: 'Helvetica', 'Arial', sans-serif; font-size: 12px; color: #333;">
+            <t t-foreach="docs" t-as="move">
+                <div class="article" t-att-data-oe-model="move._name" t-att-data-oe-id="move.id" style="font-family: 'Helvetica', 'Arial', sans-serif; font-size: 12px; color: #333;">
                     <link rel="stylesheet" type="text/css" href="/web/static/lib/bootstrap/dist/css/bootstrap.css"/>
                     
                     <div class="page">
@@ -67,11 +66,11 @@
                         <!-- Cabecera / Membrete -->
                         <div class="row">
                             <div class="col-6">
-                                <img t-if="picking.company_id.logo" t-att-src="image_data_uri(picking.company_id.logo)" style="max-height: 80px; max-width: 200px;" alt="Logo Empresa"/>
+                                <img t-if="move.company_id.logo" t-att-src="image_data_uri(move.company_id.logo)" style="max-height: 80px; max-width: 200px;" alt="Logo Empresa"/>
                                 <div class="mt-2">
-                                    <strong><span t-field="picking.company_id.name"/></strong><br/>
-                                    <span>RIF: <span t-field="picking.company_id.vat"/></span><br/>
-                                    <span>Dirección: <span t-field="picking.company_id.street"/> <span t-field="picking.company_id.street2"/></span>
+                                    <strong><span t-field="move.company_id.name"/></strong><br/>
+                                    <span>RIF: <span t-field="move.company_id.vat"/></span><br/>
+                                    <span>Dirección: <span t-field="move.company_id.street"/> <span t-field="move.company_id.street2"/></span>
                                 </div>
                             </div>
                             <div class="col-6 text-end">
@@ -81,9 +80,9 @@
                                     <span style="font-size: 11px;">SIN DERECHO A CRÉDITO FISCAL</span>
                                 </div>
                                 <div>
-                                    <strong>NRO. GUÍA: </strong><span style="font-size: 14px; color: #721c24; font-weight: bold;" t-field="picking.l10n_ve_guide_number"/><br/>
-                                    <strong>Fecha de Emisión: </strong><span t-field="picking.date_done" t-options='{"widget": "date", "format": "dd/MM/yyyy"}'/><br/>
-                                    <strong>Doc. Origen: </strong><span t-field="picking.origin"/><br/>
+                                    <strong>NRO. GUÍA: </strong><span style="font-size: 14px; color: #721c24; font-weight: bold;" t-field="move.l10n_ve_guide_number"/><br/>
+                                    <strong>Fecha de Emisión: </strong><span t-field="move.invoice_date" t-options='{"widget": "date", "format": "dd/MM/yyyy"}'/><br/>
+                                    <strong>Factura Ref: </strong><span t-field="move.name"/><br/>
                                 </div>
                             </div>
                         </div>
@@ -93,15 +92,15 @@
                         <table class="table table-sm data-table" style="margin-bottom: 0;">
                             <tr>
                                 <td style="width: 15%;"><strong>Nombre / Razón:</strong></td>
-                                <td style="width: 50%;"><span t-field="picking.partner_id.name"/></td>
+                                <td style="width: 50%;"><span t-field="move.partner_id.name"/></td>
                                 <td style="width: 15%;"><strong>RIF / Cédula:</strong></td>
-                                <td style="width: 20%;"><span t-field="picking.partner_id.vat"/></td>
+                                <td style="width: 20%;"><span t-field="move.partner_id.vat"/></td>
                             </tr>
                             <tr>
                                 <td><strong>Teléfono:</strong></td>
-                                <td><span t-field="picking.partner_id.phone"/></td>
+                                <td><span t-field="move.partner_id.phone"/></td>
                                 <td><strong>Contacto:</strong></td>
-                                <td><span t-field="picking.partner_id.mobile"/></td>
+                                <td><span t-field="move.partner_id.mobile"/></td>
                             </tr>
                         </table>
 
@@ -110,23 +109,23 @@
                         <table class="table table-sm data-table" style="margin-bottom: 0;">
                             <tr>
                                 <td style="width: 15%;"><strong>Transportista:</strong></td>
-                                <td style="width: 50%;"><span t-field="picking.l10n_ve_carrier_name"/></td>
+                                <td style="width: 50%;"><span t-field="move.l10n_ve_carrier_name"/></td>
                                 <td style="width: 15%;"><strong>Cédula/RIF:</strong></td>
-                                <td style="width: 20%;"><span t-field="picking.l10n_ve_carrier_vat"/></td>
+                                <td style="width: 20%;"><span t-field="move.l10n_ve_carrier_vat"/></td>
                             </tr>
                             <tr>
                                 <td><strong>Vehículo (Marca):</strong></td>
-                                <td><span t-field="picking.l10n_ve_vehicle_brand"/></td>
+                                <td><span t-field="move.l10n_ve_vehicle_brand"/></td>
                                 <td><strong>Placa:</strong></td>
-                                <td><span t-field="picking.l10n_ve_vehicle_plate"/></td>
+                                <td><span t-field="move.l10n_ve_vehicle_plate"/></td>
                             </tr>
                             <tr>
                                 <td><strong>Punto de Partida:</strong></td>
-                                <td colspan="3"><span t-field="picking.l10n_ve_starting_point"/></td>
+                                <td colspan="3"><span t-field="move.l10n_ve_starting_point"/></td>
                             </tr>
                             <tr>
                                 <td><strong>Punto de Destino:</strong></td>
-                                <td colspan="3"><span t-field="picking.l10n_ve_ending_point"/></td>
+                                <td colspan="3"><span t-field="move.l10n_ve_ending_point"/></td>
                             </tr>
                         </table>
 
@@ -142,19 +141,19 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <t t-foreach="picking.move_ids" t-as="move">
-                                    <t t-if="move.quantity > 0">
+                                <t t-foreach="move.invoice_line_ids.filtered(lambda l: not l.display_type)" t-as="line">
+                                    <t t-if="line.quantity > 0">
                                         <tr>
-                                            <td style="text-align: center;"><span t-field="move.product_id.default_code"/></td>
+                                            <td style="text-align: center;"><span t-field="line.product_id.default_code"/></td>
                                             <td>
-                                                <span t-field="move.product_id.name"/><br/>
-                                                <small class="text-muted" t-field="move.description_picking"/>
+                                                <span t-field="line.product_id.name"/><br/>
+                                                <small class="text-muted" t-field="line.name"/>
                                             </td>
                                             <td style="text-align: right;">
-                                                <span t-field="move.quantity"/>
+                                                <span t-field="line.quantity"/>
                                             </td>
                                             <td style="text-align: center;">
-                                                <span t-field="move.product_uom.name"/>
+                                                <span t-field="line.product_uom_id.name"/>
                                             </td>
                                         </tr>
                                     </t>

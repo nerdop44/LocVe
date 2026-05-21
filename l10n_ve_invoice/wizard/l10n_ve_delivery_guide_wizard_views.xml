@@ -8,7 +8,7 @@
                 <sheet>
                     <group>
                         <group string="Identificación">
-                            <field name="picking_id" invisible="1"/>
+                            <field name="move_id" invisible="1"/>
                             <field name="l10n_ve_guide_number"/>
                             <field name="l10n_ve_carrier_name"/>
                             <field name="l10n_ve_carrier_vat"/>

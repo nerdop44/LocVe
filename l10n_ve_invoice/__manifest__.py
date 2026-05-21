@@ -25,7 +25,6 @@
         'views/account_move.xml',
         'views/res_config_settings.xml',
         'views/menu.xml',
-        'views/stock_picking_views.xml',
         'wizard/accounting_reports_views.xml',
         'wizard/l10n_ve_delivery_guide_wizard_views.xml',
     ],
