@@ -1109,7 +1109,7 @@ class AccountRetention(models.Model):
                 ):
                     _logger.info(f"Procesando pago {payment.id}")
                     if payment.state == 'draft' and retention.number:
-                        payment.write({'ref': f"Retención {retention.number}"})
+                        payment.write({'memo': f"Retención {retention.number}"})
                     if not payment.move_id:
                         if hasattr(payment, 'action_create'):
                             _logger.info("Creando asiento contable para el pago")
