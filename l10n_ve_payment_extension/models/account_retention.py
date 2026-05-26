@@ -671,6 +671,10 @@ class AccountRetention(models.Model):
             if currency_vef.is_zero(total_retention_vef):
                 continue
 
+            outstanding_account_id = (
+                journal.payment_credit_account_id.id if payment_type == 'outbound' else journal.payment_debit_account_id.id
+            ) or journal.default_account_id.id
+
             payment_vals = {
                 "retention_id": self.id,
                 "partner_id": self.partner_id.id,
@@ -680,6 +684,7 @@ class AccountRetention(models.Model):
                 "journal_id": journal.id,
                 "payment_type": payment_type,
                 "payment_method_line_id": payment_method_line.id if payment_method_line else False,
+                "outstanding_account_id": outstanding_account_id,
                 "foreign_rate": foreign_rate,
                 "currency_id": currency_vef.id,
                 "amount": total_retention_vef,
@@ -1009,6 +1014,10 @@ class AccountRetention(models.Model):
             if move.move_type in ('in_refund', 'out_refund'):
                 payment_type = 'inbound' if payment_type == 'outbound' else 'outbound'
 
+            outstanding_account_id = (
+                journal.payment_credit_account_id.id if payment_type == 'outbound' else journal.payment_debit_account_id.id
+            ) or journal.default_account_id.id
+
             payment_vals = {
                 'retention_id': self.id,
                 'partner_id': self.partner_id.id,
@@ -1020,6 +1029,7 @@ class AccountRetention(models.Model):
                 'payment_concept_id': concept.id,
                 'foreign_rate': lines[0].foreign_currency_rate,
                 'payment_method_line_id': payment_method_line.id if payment_method_line else False,
+                'outstanding_account_id': outstanding_account_id,
                 'amount': total_retention_vef,
                 'currency_id': currency_vef.id,
                 'date': self.date_accounting or fields.Date.context_today(self),
@@ -1110,6 +1120,19 @@ class AccountRetention(models.Model):
                     _logger.info(f"Procesando pago {payment.id}")
                     if payment.state == 'draft' and retention.number:
                         payment.write({'memo': f"Retención {retention.number}"})
+                        
+                    if not payment.outstanding_account_id:
+                        journal = payment.journal_id
+                        if payment.payment_type == 'outbound':
+                            outstanding = journal.default_account_id or journal.payment_credit_account_id
+                        else:
+                            outstanding = journal.default_account_id or journal.payment_debit_account_id
+                        
+                        if outstanding:
+                            payment.outstanding_account_id = outstanding
+                        elif payment.payment_method_line_id.payment_account_id:
+                            payment.outstanding_account_id = payment.payment_method_line_id.payment_account_id
+
                     if not payment.move_id:
                         if hasattr(payment, 'action_create'):
                             _logger.info("Creando asiento contable para el pago")
@@ -1127,6 +1150,15 @@ class AccountRetention(models.Model):
                     _logger.info(f"Asignando número de comprobante a {len(move_ids)} facturas")
                     retention.set_voucher_number_in_invoice(move_ids, retention)
 
+                # Reconciliación Automática
+                try:
+                    retention._reconcile_all_payments()
+                    _logger.info(f"Reconciliación completada para retención {retention.id}")
+                except Exception as e:
+                    _logger.warning(
+                        f"Reconciliación automática no completada para retención {retention.id}: {e}. "
+                        "Las líneas se pueden reconciliar manualmente desde la factura."
+                    )
 
                 # Actualizar estado de la retención (se mantiene igual)
                 retention.write({'state': 'emitted'})
@@ -1450,67 +1482,96 @@ class AccountRetention(models.Model):
 
     def _reconcile_supplier_payment(self, payment):
         """
-        Reconciliación de pagos a proveedores para retenciones
-        Args:
-            payment (account.payment): Pago a reconciliar
-        Raises:
-            UserError: Si hay problemas con la reconciliación
+        Reconciliación de pagos a proveedores para retenciones usando ORM nativo.
+        Maneja automáticamente diferencias de cambio (VEF vs USD).
         """
         _logger.info(f"Reconciliando pago a proveedor ID: {payment.id}")
     
-        # Validación básica del pago
         if not payment.move_id:
-            error_msg = f"El pago {payment.id} no tiene asiento contable asociado"
-            _logger.error(error_msg)
-            raise UserError(_("El pago no tiene asiento contable. Por favor valide la configuración."))
-    
-        # Identificar líneas a reconciliar según tipo de pago
-        if payment.payment_type == "outbound":
-            line_filter = lambda l: (
-                l.account_id.account_type == "liability_payable" and 
-                l.debit > 0
-            )
-        else:  # inbound (reembolsos/notas de crédito)
-            line_filter = lambda l: (
-                l.account_id.account_type == "liability_payable" and 
-                l.credit > 0
-            )
-    
-        lineas_a_reconciliar = payment.move_id.line_ids.filtered(line_filter)
-    
-        if not lineas_a_reconciliar:
-            error_msg = f"No hay líneas a reconciliar en pago {payment.id}"
-            _logger.error(error_msg)
-            raise UserError(_("""
-                No se encontraron líneas contables para reconciliar. 
-                Verifique:
-                1. La configuración de cuentas por pagar
-                2. Que el pago esté correctamente contabilizado
-            """))
-    
-        # Proceso de reconciliación
-        try:
-            linea_reconciliar = lineas_a_reconciliar[0]
-            facturas = payment.retention_line_ids.mapped('move_id')
-        
-            if not facturas:
-                raise UserError(_("No hay facturas asociadas a este pago"))
-        
-            for factura in facturas:
-                if not factura.exists():
-                    _logger.warning(f"Factura {factura.id} no existe, omitiendo")
-                    continue
-                factura.js_assign_outstanding_line(linea_reconciliar.id)
+            _logger.warning(f"Pago {payment.id} no tiene asiento contable, omitiendo reconciliación")
+            return
             
-            _logger.info(f"Pago {payment.id} reconciliado exitosamente con facturas {facturas.ids}")
+        if payment.move_id.state != 'posted':
+            _logger.warning(f"Asiento del pago {payment.id} no está publicado, omitiendo reconciliación")
+            return
+            
+        facturas = payment.retention_line_ids.mapped('move_id').filtered(
+            lambda m: m.state == 'posted'
+        )
+        if not facturas:
+            _logger.warning("No hay facturas publicadas vinculadas a este pago")
+            return
+            
+        # Buscar líneas en el pago que apunten a cuentas por pagar y no estén reconciliadas
+        payment_payable_lines = payment.move_id.line_ids.filtered(
+            lambda l: l.account_id.account_type == 'liability_payable' and not l.reconciled
+        )
+        if not payment_payable_lines:
+            _logger.warning(f"No hay líneas 'liability_payable' en el asiento del pago {payment.id}")
+            return
+            
+        for factura in facturas:
+            # Buscar en la factura las líneas por pagar no reconciliadas de la misma cuenta
+            invoice_payable_lines = factura.line_ids.filtered(
+                lambda l: l.account_id == payment_payable_lines[0].account_id 
+                         and not l.reconciled
+            )
+            if not invoice_payable_lines:
+                _logger.warning(f"No hay líneas reconciliables en factura {factura.name}")
+                continue
+                
+            try:
+                # El ORM nativo se encarga de cruzar las líneas y resolver 
+                # la diferencia VEF/USD con sus propios asientos de ajuste
+                (payment_payable_lines[0] | invoice_payable_lines[0]).reconcile()
+                _logger.info(f"Reconciliación exitosa: pago {payment.name} ↔ factura {factura.name}")
+            except Exception as e:
+                _logger.warning(f"Error reconciliando pago {payment.name} con factura {factura.name}: {e}")
+                # No detener toda la ejecución si una factura falla
+                pass
+
+    def _reconcile_customer_payment(self, payment):
+        """
+        Reconciliación de pagos de clientes para retenciones usando ORM nativo.
+        Maneja automáticamente diferencias de cambio (VEF vs USD).
+        """
+        _logger.info(f"Reconciliando pago de cliente ID: {payment.id}")
         
-        except Exception as e:
-            error_msg = f"Error reconciliando pago {payment.id}: {str(e)}"
-            _logger.error(error_msg)
-            raise UserError(_("""
-                Error al reconciliar el pago: %s
-                Detalles técnicos: %s
-            """) % (payment.name, str(e)))
+        if not payment.move_id:
+            _logger.warning(f"Pago {payment.id} no tiene asiento contable, omitiendo reconciliación")
+            return
+            
+        if payment.move_id.state != 'posted':
+            _logger.warning(f"Asiento del pago {payment.id} no está publicado, omitiendo reconciliación")
+            return
+            
+        facturas = payment.retention_line_ids.mapped('move_id').filtered(
+            lambda m: m.state == 'posted'
+        )
+        if not facturas:
+            return
+            
+        payment_receivable_lines = payment.move_id.line_ids.filtered(
+            lambda l: l.account_id.account_type == 'asset_receivable' and not l.reconciled
+        )
+        if not payment_receivable_lines:
+            _logger.warning(f"No hay líneas 'asset_receivable' en el asiento del pago {payment.id}")
+            return
+            
+        for factura in facturas:
+            invoice_receivable_lines = factura.line_ids.filtered(
+                lambda l: l.account_id == payment_receivable_lines[0].account_id 
+                         and not l.reconciled
+            )
+            if not invoice_receivable_lines:
+                continue
+                
+            try:
+                (payment_receivable_lines[0] | invoice_receivable_lines[0]).reconcile()
+                _logger.info(f"Reconciliación exitosa: pago {payment.name} ↔ factura {factura.name}")
+            except Exception as e:
+                _logger.warning(f"Error reconciliando pago {payment.name} con factura {factura.name}: {e}")
+                pass
 
     @api.model
     def compute_retention_lines_data(self, invoice_id, payment=None):
