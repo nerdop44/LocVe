@@ -150,27 +150,35 @@ class AccountRetentionLine(models.Model):
 
             self.invoice_amount = tax_totals.get('amount_untaxed', 0.0)
             
+            # Identificar las monedas dinámicamente
+            if self.retention_id:
+                base_currency, alternate_currency, vef_currency, foreign_currency = self.retention_id._get_retention_currencies()
+            else:
+                base_currency = self.env.company.currency_id
+                alternate_currency = getattr(self.env.company, 'currency_id_dif', self.env['res.currency'])
+                vef_currency = alternate_currency if alternate_currency.name in ('VEF', 'VES') else base_currency
+
             # Regla v62: Montos en VEF (Bolívares) con tasa dual explícita
             invoice_rate = invoice.tax_today or 1.0
-            today_rate = self.env.company.currency_id_dif.inverse_rate or 1.0
+            today_rate = getattr(self.env.company, 'currency_id_dif', self.env['res.currency']).inverse_rate or 1.0
             used_rate = today_rate if (self.retention_id and self.retention_id.use_today_rate) else invoice_rate
             
-            company_currency = self.env.company.currency_id
             invoice_currency = invoice.currency_id
-            vef_currency = self.foreign_currency_id or company_currency
+            invoice_is_in_vef = invoice_currency.name in ('VEF', 'VES')
             
-            if invoice_currency == vef_currency:
-                self.foreign_invoice_amount = abs(invoice.amount_untaxed_signed)
-                self.foreign_invoice_total = abs(invoice.amount_total_signed)
+            if invoice_is_in_vef:
+                self.foreign_invoice_amount = invoice.amount_untaxed
+                self.foreign_invoice_total = invoice.amount_total
             else:
-                self.foreign_invoice_amount = invoice.amount_untaxed * used_rate
-                self.foreign_invoice_total = invoice.amount_total * used_rate
+                self.foreign_invoice_amount = getattr(invoice, 'amount_untaxed_bs', 0.0) or (invoice.amount_untaxed * used_rate)
+                self.foreign_invoice_total = getattr(invoice, 'amount_total_bs', 0.0) or (invoice.amount_total * used_rate)
             
             # Poblar los campos de IVA directamente (Estimación proporcional si no hay campo signed de tax)
             self.iva_amount = tax_totals.get('amount_tax', 0.0)
             self.foreign_iva_amount = self.foreign_invoice_total - self.foreign_invoice_amount
 
-            self.foreign_currency_rate = invoice.foreign_rate or 1.0
+            self.foreign_currency_rate = used_rate
+            self.foreign_currency_inverse_rate = 1.0 / used_rate if used_rate else 0.0
 
             self.is_retention_client = invoice.move_type in ('out_invoice', 'out_refund', 'out_debit')
             self.invoice_type = invoice.move_type
@@ -250,41 +258,41 @@ class AccountRetentionLine(models.Model):
 
             tax_totals = record.move_id.tax_totals or {}
 
-            # =====================================================================
-            # REGLA UNIVERSAL VENEZOLANA: montos siempre en VEF para retenciones
-            # =====================================================================
-            vef_currency = self.foreign_currency_id or self.env.company.currency_id
-            invoice_currency = record.move_id.currency_id
-            invoice_is_in_vef = (vef_currency and invoice_currency == vef_currency) or (
-                not vef_currency and invoice_currency == self.env.company.currency_id
-            )
-            foreign_rate = record.move_id.foreign_rate or 1.0
+            # Identificar las monedas dinámicamente
+            if record.retention_id:
+                base_currency, alternate_currency, vef_currency, foreign_currency = record.retention_id._get_retention_currencies()
+            else:
+                base_currency = record.env.company.currency_id
+                alternate_currency = getattr(record.env.company, 'currency_id_dif', record.env['res.currency'])
+                vef_currency = alternate_currency if alternate_currency.name in ('VEF', 'VES') else base_currency
 
-            # Montos en moneda empresa (Bs.)
+            # Tasa dual
+            invoice_rate = record.move_id.tax_today or 1.0
+            today_rate = getattr(record.env.company, 'currency_id_dif', record.env['res.currency']).inverse_rate or 1.0
+            used_rate = today_rate if (record.retention_id and record.retention_id.use_today_rate) else invoice_rate
+
+            invoice_currency = record.move_id.currency_id
+            invoice_is_in_vef = invoice_currency.name in ('VEF', 'VES')
+
+            # Montos en moneda empresa (Bs. o USD)
             amount_untaxed_company = tax_totals.get('base_amount', tax_totals.get('base_amount_currency', 0.0))
             amount_total_company = tax_totals.get('total_amount', tax_totals.get('total_amount_currency', 0.0))
 
             # Montos en VEF (Regla v62: Tasa Dual)
-            invoice_rate = record.move_id.tax_today or 1.0
-            today_rate = self.env.company.currency_id_dif.inverse_rate or 1.0
-            used_rate = today_rate if (record.retention_id and record.retention_id.use_today_rate) else invoice_rate
-            
-            company_currency = self.env.company.currency_id
-            invoice_currency = record.move_id.currency_id
-            
-            if invoice_currency == vef_currency:
-                vef_untaxed = abs(record.move_id.amount_untaxed_signed)
-                vef_total = abs(record.move_id.amount_total_signed)
+            if invoice_is_in_vef:
+                vef_untaxed = record.move_id.amount_untaxed
+                vef_total = record.move_id.amount_total
             else:
-                vef_untaxed = record.move_id.amount_untaxed * used_rate
-                vef_total = record.move_id.amount_total * used_rate
+                vef_untaxed = getattr(record.move_id, 'amount_untaxed_bs', 0.0) or (record.move_id.amount_untaxed * used_rate)
+                vef_total = getattr(record.move_id, 'amount_total_bs', 0.0) or (record.move_id.amount_total * used_rate)
 
-            # Asignar valores — los campos foreign_ siempre son en VEF
+            # Asignar valores
             record.invoice_total = amount_total_company
             record.foreign_invoice_total = vef_total
             record.invoice_amount = amount_untaxed_company
             record.foreign_invoice_amount = vef_untaxed
-            record.foreign_currency_rate = foreign_rate
+            record.foreign_currency_rate = used_rate
+            record.foreign_currency_inverse_rate = 1.0 / used_rate if used_rate else 0.0
 
             # Si no hay concepto de pago, no continuamos
             if not record.payment_concept_id:
@@ -308,29 +316,40 @@ class AccountRetentionLine(models.Model):
                         record.foreign_invoice_amount = vef_untaxed
                     break  # Salir al encontrar la primera coincidencia
                 
-    @api.depends("invoice_amount", "foreign_invoice_amount", "foreign_currency_rate")
+    @api.depends("move_id", "retention_id.use_today_rate")
     def _compute_amounts(self):
-        base_currency_is_vef = self.env.company.currency_id == self.env.ref("base.VEF")
-        if not base_currency_is_vef:
-            for record in self:
-                if not record.move_id:
-                    continue
-                tax_totals = record.move_id.tax_totals or {}
-                amount_untaxed = tax_totals.get('amount_untaxed', 0)
-                foreign_amount_untaxed = tax_totals.get('foreign_amount_untaxed', amount_untaxed)
+        for record in self:
+            if not record.move_id:
+                continue
+            # Identificar las monedas dinámicamente
+            if record.retention_id:
+                base_currency, alternate_currency, vef_currency, foreign_currency = record.retention_id._get_retention_currencies()
+            else:
+                base_currency = record.env.company.currency_id
+                alternate_currency = getattr(record.env.company, 'currency_id_dif', record.env['res.currency'])
+                vef_currency = alternate_currency if alternate_currency.name in ('VEF', 'VES') else base_currency
 
-                if not record.retention_id or record.retention_id.type == "in_invoice":
-                    record.invoice_amount = amount_untaxed
-                    record.foreign_invoice_amount = foreign_amount_untaxed
-                    # No break here, as it should apply to all lines in the recordset
-        else:
-             for record in self:
-                 if not record.move_id:
-                     continue
-                 tax_totals = record.move_id.tax_totals or {}
-                 if not record.retention_id or record.retention_id.type == "in_invoice":
-                     record.invoice_amount = tax_totals.get("amount_untaxed", 0)
-                     record.foreign_invoice_amount = tax_totals.get("foreign_amount_untaxed", record.invoice_amount)
+            tax_totals = record.move_id.tax_totals or {}
+            invoice_currency = record.move_id.currency_id
+            invoice_is_in_vef = invoice_currency.name in ('VEF', 'VES')
+
+            # Tasa
+            invoice_rate = record.move_id.tax_today or 1.0
+            today_rate = getattr(record.env.company, 'currency_id_dif', record.env['res.currency']).inverse_rate or 1.0
+            used_rate = today_rate if (record.retention_id and record.retention_id.use_today_rate) else invoice_rate
+
+            # Monto en moneda de la empresa
+            amount_untaxed = tax_totals.get("amount_untaxed", 0.0)
+
+            # Monto en moneda fiscal (Bs.)
+            if invoice_is_in_vef:
+                foreign_amount_untaxed = amount_untaxed
+            else:
+                foreign_amount_untaxed = getattr(record.move_id, 'amount_untaxed_bs', 0.0) or (amount_untaxed * used_rate)
+
+            if not record.retention_id or record.retention_id.type == "in_invoice":
+                record.invoice_amount = amount_untaxed
+                record.foreign_invoice_amount = foreign_amount_untaxed
 
     @api.onchange(
         "invoice_amount",
@@ -362,13 +381,13 @@ class AccountRetentionLine(models.Model):
             or (l.retention_id.type_retention == "islr" and l.retention_id.type == "in_invoice")
         )
         for record in islr_supplier_retention_lines:
-            foreign_rate = record.move_id.foreign_rate or 1.0
+            used_rate = record.foreign_currency_rate or record.move_id.tax_today or 1.0
 
             # Retención en moneda empresa
             record.retention_amount = (
                 (record.invoice_amount * (record.related_percentage_tax_base / 100))
                 * (record.related_percentage_fees / 100)
-            ) - (record.related_amount_subtract_fees / foreign_rate if foreign_rate else 0.0)
+            ) - (record.related_amount_subtract_fees / used_rate if used_rate else 0.0)
 
             # Retención en VEF (siempre — foreign_invoice_amount ya está en VEF)
             record.foreign_retention_amount = (
@@ -456,14 +475,14 @@ class AccountRetentionLine(models.Model):
             if record.retention_amount == 0 and record.foreign_retention_amount == 0:
                 raise ValidationError(_("You cannot create a retention line with a zero retention amount."))
 
-            is_vef_the_base_currency = self.env.company.currency_id == self.env.ref("base.VEF")
             is_client_retention = record.retention_id and record.retention_id.type == "out_invoice"
 
-            if (is_vef_the_base_currency and is_client_retention and record.move_id
-                    and record.retention_amount > record.move_id.amount_residual):
-                raise ValidationError(
-                    _("The total amount of the retention is greater than the residual amount of the invoice.")
-                )
+            if is_client_retention and record.move_id:
+                limit_amount = abs(record.move_id.amount_residual_signed) if record.move_id.currency_id != record.company_currency_id else record.move_id.amount_residual
+                if record.retention_amount > limit_amount:
+                    raise ValidationError(
+                        _("The total amount of the retention is greater than the residual amount of the invoice.")
+                    )
 
     def get_invoice_paid_amount_not_related_with_retentions(self):
         """

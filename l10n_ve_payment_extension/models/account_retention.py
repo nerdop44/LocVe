@@ -17,15 +17,74 @@ class AccountRetention(models.Model):
 
     company_currency_id = fields.Many2one(
         "res.currency",
-        default=lambda self: self.env.company.currency_id.id,
+        compute="_compute_currency_info",
+        store=True,
+        readonly=False,
+        precompute=True,
     )
     foreign_currency_id = fields.Many2one(
         "res.currency",
-        default=lambda self: self.env.ref("base.VEF").id,
+        compute="_compute_currency_info",
+        store=True,
+        readonly=False,
+        precompute=True,
     )
     base_currency_is_vef = fields.Boolean(
-        default=lambda self: self.env.company.currency_id == self.env.ref("base.VEF"),
+        compute="_compute_currency_info",
+        store=True,
     )
+
+    def _get_retention_currencies(self):
+        """
+        Determina de forma dinámica las monedas base, alterna, fiscal (VEF/VES) y extranjera (USD).
+        """
+        company = self.company_id or self.env.company
+        currency_base = company.currency_id
+        currency_alternate = getattr(company, 'currency_id_dif', self.env['res.currency'])
+
+        # Detectar moneda fiscal de Venezuela (VES/VEF)
+        currency_tax = self.env['res.currency']
+        if currency_base.name in ('VES', 'VEF'):
+            currency_tax = currency_base
+        elif currency_alternate and currency_alternate.name in ('VES', 'VEF'):
+            currency_tax = currency_alternate
+        else:
+            # Buscar en monedas activas de la BD
+            currency_tax = self.env['res.currency'].search([
+                ('name', 'in', ('VES', 'VEF')),
+                ('active', '=', True)
+            ], limit=1)
+            # Fallbacks a referencias base
+            if not currency_tax:
+                currency_tax = self.env.ref('base.VES', raise_if_not_found=False)
+            if not currency_tax:
+                currency_tax = self.env.ref('base.VEF', raise_if_not_found=False)
+            if not currency_tax:
+                currency_tax = currency_base
+
+        # Detectar moneda extranjera de referencia (ej. USD)
+        currency_foreign = self.env['res.currency']
+        if currency_base != currency_tax:
+            currency_foreign = currency_base
+        elif currency_alternate and currency_alternate != currency_tax:
+            currency_foreign = currency_alternate
+        else:
+            currency_foreign = self.env['res.currency'].search([
+                ('name', '=', 'USD'),
+                ('active', '=', True)
+            ], limit=1)
+            if not currency_foreign:
+                currency_foreign = self.env.ref('base.USD', raise_if_not_found=False)
+
+        return currency_base, currency_alternate, currency_tax, currency_foreign
+
+    @api.depends('company_id')
+    def _compute_currency_info(self):
+        for record in self:
+            base, alternate, tax, foreign = record._get_retention_currencies()
+            record.company_currency_id = base.id if base else False
+            record.foreign_currency_id = tax.id if tax else False
+            record.base_currency_is_vef = (base == tax) if base and tax else False
     use_today_rate = fields.Boolean(
         string="Utilizar Tasa de Hoy:",
         default=False,
@@ -603,7 +662,7 @@ class AccountRetention(models.Model):
                 payment_type = "inbound" if partner_type == "supplier" else "outbound"
 
             # Moneda del pago: VEF (Regla universal venezolana)
-            currency_vef = self.foreign_currency_id or self.env.company.currency_id
+            _, _, currency_vef, _ = self._get_retention_currencies()
             # Monto en VEF
             total_retention_vef = sum(lines.mapped("foreign_retention_amount"))
             # Tasa
@@ -939,7 +998,7 @@ class AccountRetention(models.Model):
         # 2. Iterar sobre los pagos requeridos para crear o actualizar
         for (concept, move), lines in lines_by_concept_and_move.items():
             # Moneda VEF
-            currency_vef = self.foreign_currency_id or self.env.company.currency_id
+            _, _, currency_vef, _ = self._get_retention_currencies()
             total_retention_vef = sum(lines.mapped('foreign_retention_amount'))
             
             if currency_vef.is_zero(total_retention_vef):
@@ -1049,6 +1108,8 @@ class AccountRetention(models.Model):
                     skip_retention_state_check=True
                 ):
                     _logger.info(f"Procesando pago {payment.id}")
+                    if payment.state == 'draft' and retention.number:
+                        payment.write({'ref': f"Retención {retention.number}"})
                     if not payment.move_id:
                         if hasattr(payment, 'action_create'):
                             _logger.info("Creando asiento contable para el pago")
@@ -1500,47 +1561,41 @@ class AccountRetention(models.Model):
 
             tax_totals = invoice_id.tax_totals
 
-            # Identificar el VEF como moneda objetivo de retención
-            # Usamos la moneda configurada en la retención (default VEF)
-            vef_currency = self.foreign_currency_id or self.env.company.currency_id
+            # Identificar las monedas dinámicamente
+            base_currency, alternate_currency, vef_currency, foreign_currency = self._get_retention_currencies()
             invoice_currency = invoice_id.currency_id
 
-            # Tasa de la factura (moneda empresa → VEF)
-            foreign_rate = invoice_id.foreign_rate or 1.0
-            foreign_inverse_rate = 1.0 / foreign_rate if foreign_rate else 0.0
+            # ¿La factura ya está en VEF/VES?
+            invoice_is_in_vef = invoice_currency.name in ('VEF', 'VES')
 
-            # Validación: si la factura NO está en VEF, se necesita tasa para convertir
-            if invoice_currency != vef_currency and not foreign_rate:
+            # Regla v62: Determinar la tasa a usar (Priorizar tasa BCV de la factura)
+            invoice_rate = invoice_id.tax_today or 1.0
+            today_rate = getattr(self.env.company, 'currency_id_dif', self.env['res.currency']).inverse_rate or 1.0
+            used_rate = today_rate if self.use_today_rate else invoice_rate
+
+            # Tasa y tasa inversa
+            foreign_rate = used_rate
+            foreign_inverse_rate = 1.0 / used_rate if used_rate else 0.0
+
+            # Validación: si la factura NO está en VEF/VES, se necesita tasa para convertir
+            if not invoice_is_in_vef and not foreign_rate:
                 raise UserError(_(
                     "No se pudo crear la línea de retención. La tasa de cambio para la factura '%s' "
                     "(moneda %s) no está definida. Por favor, configure la tasa de cambio en "
                     "Configuración > Monedas > Tasas."
                 ) % (invoice_id.display_name, invoice_currency.name))
 
-            # ¿La factura ya está en VEF?
-            invoice_is_in_vef = (vef_currency and invoice_currency == vef_currency) or (
-                not vef_currency and invoice_currency == self.env.company.currency_id
-            )
-
-            # Regla v62: Determinar la tasa a usar (Priorizar tasa BCV de la factura)
-            rate_date = fields.Date.today() if self.use_today_rate else (invoice_id.invoice_date or fields.Date.today())
-            company_currency = self.env.company.currency_id
-            
-            # Tasa guardada en la factura por account_dual_currency
-            invoice_rate = invoice_id.tax_today or 1.0
-            # Tasa de hoy desde la configuración de moneda dual de la empresa
-            today_rate = self.env.company.currency_id_dif.inverse_rate or 1.0
-            
-            used_rate = today_rate if self.use_today_rate else invoice_rate
-            
             # Montos globales en VEF (Regla v62: Conversión Manual con Tasa Dual)
-            if invoice_currency == vef_currency:
-                global_vef_untaxed = abs(invoice_id.amount_untaxed_signed)
-                global_vef_total = abs(invoice_id.amount_total_signed)
+            if invoice_is_in_vef:
+                global_vef_untaxed = invoice_id.amount_untaxed
+                global_vef_total = invoice_id.amount_total
             else:
-                # Multiplicación directa por la tasa BCV para asegurar Bolívares reales
-                global_vef_untaxed = invoice_id.amount_untaxed * used_rate
-                global_vef_total = invoice_id.amount_total * used_rate
+                if self.use_today_rate:
+                    global_vef_untaxed = invoice_id.amount_untaxed * used_rate
+                    global_vef_total = invoice_id.amount_total * used_rate
+                else:
+                    global_vef_untaxed = getattr(invoice_id, 'amount_untaxed_bs', 0.0) or (invoice_id.amount_untaxed * used_rate)
+                    global_vef_total = getattr(invoice_id, 'amount_total_bs', 0.0) or (invoice_id.amount_total * used_rate)
 
             for subtotal in tax_totals["subtotals"]:
                 subtotal_name = subtotal.get("name", "Subtotal")
@@ -1553,46 +1608,30 @@ class AccountRetention(models.Model):
                         continue
                     tax = tax[0]
 
-                    # Montos en la moneda de empresa (En este caso, siempre Bs. para Devenalsa)
-                    # Odoo 18: base_amount es moneda empresa, base_amount_currency es moneda factura.
-                    invoice_amount_company = tax_group_data.get(
-                        "base_amount", tax_group_data.get("base_amount_currency", 0.0)
-                    )
-                    iva_amount_company = tax_group_data.get(
-                        "tax_amount", tax_group_data.get("tax_amount_currency", 0.0)
-                    )
+                    # Montos en la moneda de empresa (USD o VEF)
+                    invoice_amount_company = tax_group_data.get("base_amount", tax_group_data.get("base_amount_currency", 0.0))
+                    iva_amount_company = tax_group_data.get("tax_amount", tax_group_data.get("tax_amount_currency", 0.0))
 
                     # ==========================================================
-                    # Calcular montos en VEF (el objetivo SIEMPRE es VEF)
+                    # Calcular montos en la moneda fiscal (VEF/VES)
                     # ==========================================================
                     if invoice_is_in_vef:
-                        # La factura ya está en VEF → usar montos directamente
-                        vef_invoice_amount = invoice_amount_company
-                        vef_iva_amount = iva_amount_company
-                        vef_invoice_total = tax_totals.get(
-                            "total_amount_currency", tax_totals.get("total_amount", 0.0)
-                        )
+                        # La factura ya está en VEF/VES → usar montos del documento directamente
+                        vef_invoice_amount = tax_group_data.get("base_amount_currency", tax_group_data.get("base_amount", 0.0))
+                        vef_iva_amount = tax_group_data.get("tax_amount_currency", tax_group_data.get("tax_amount", 0.0))
+                        vef_invoice_total = tax_totals.get("total_amount_currency", tax_totals.get("total_amount", 0.0))
                     elif global_vef_untaxed > 0:
-                        # La factura está en otra moneda y l10n_ve_tax ya calculó los VEF
-                        # Usar los valores globales precalculados (proporcional si hay múltiples grupos)
-                        if  total_groups == 1:
-                            vef_invoice_amount = global_vef_untaxed
-                            vef_iva_amount = global_vef_total - global_vef_untaxed
-                        else:
-                            # Múltiples grupos: calcular proporcional al porcentaje del grupo sobre el total
-                            total_company_untaxed = tax_totals.get("base_amount_currency", tax_totals.get("base_amount", 1.0)) or 1.0
-                            proportion = invoice_amount_company / total_company_untaxed if total_company_untaxed else 0.0
-                            vef_invoice_amount = global_vef_untaxed * proportion
-                            vef_iva_amount = (global_vef_total - global_vef_untaxed) * proportion
+                        # La factura está en otra moneda (ej. USD) y escalamos proporcionalmente los VEF globales
+                        total_invoice_untaxed = tax_totals.get("base_amount_currency", tax_totals.get("base_amount", 1.0)) or 1.0
+                        proportion = tax_group_data.get("base_amount_currency", 0.0) / total_invoice_untaxed if total_invoice_untaxed else 0.0
+                        vef_invoice_amount = global_vef_untaxed * proportion
+                        vef_iva_amount = (global_vef_total - global_vef_untaxed) * proportion
                         vef_invoice_total = global_vef_total
                     else:
-                        # Fallback: convertir usando la tasa directo
-                        vef_invoice_amount = invoice_amount_company * foreign_rate
-                        vef_iva_amount = iva_amount_company * foreign_rate
-                        vef_invoice_total = (
-                            tax_totals.get("total_amount_currency", tax_totals.get("total_amount", 0.0))
-                            * foreign_rate
-                        )
+                        # Fallback
+                        vef_invoice_amount = invoice_amount_company * used_rate
+                        vef_iva_amount = iva_amount_company * used_rate
+                        vef_invoice_total = tax_totals.get("total_amount", 0.0) * used_rate
 
                     # Retención en VEF (siempre)
                     vef_retention_amount = float_round(
@@ -1606,9 +1645,7 @@ class AccountRetention(models.Model):
                         precision_digits=invoice_id.company_currency_id.decimal_places,
                     )
 
-                    invoice_total_company = tax_totals.get(
-                        "total_amount_currency", tax_totals.get("total_amount", 0.0)
-                    )
+                    invoice_total_company = tax_totals.get("total_amount", tax_totals.get("total_amount_currency", 0.0))
 
                     _logger.warning(
                         f"Retención calculada: "
