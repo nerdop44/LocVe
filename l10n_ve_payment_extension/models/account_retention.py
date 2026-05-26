@@ -671,9 +671,10 @@ class AccountRetention(models.Model):
             if currency_vef.is_zero(total_retention_vef):
                 continue
 
-            outstanding_account_id = (
-                journal.payment_credit_account_id.id if payment_type == 'outbound' else journal.payment_debit_account_id.id
-            ) or journal.default_account_id.id
+            # Odoo 18: las cuentas outstanding suelen estar en la payment_method_line o usar la default del diario
+            pm_account_id = payment_method_line.payment_account_id.id if payment_method_line and hasattr(payment_method_line, 'payment_account_id') else False
+            
+            outstanding_account_id = pm_account_id or journal.default_account_id.id
 
             payment_vals = {
                 "retention_id": self.id,
@@ -1014,9 +1015,10 @@ class AccountRetention(models.Model):
             if move.move_type in ('in_refund', 'out_refund'):
                 payment_type = 'inbound' if payment_type == 'outbound' else 'outbound'
 
-            outstanding_account_id = (
-                journal.payment_credit_account_id.id if payment_type == 'outbound' else journal.payment_debit_account_id.id
-            ) or journal.default_account_id.id
+            # Odoo 18: las cuentas outstanding suelen estar en la payment_method_line o usar la default del diario
+            pm_account_id = payment_method_line.payment_account_id.id if payment_method_line and hasattr(payment_method_line, 'payment_account_id') else False
+            
+            outstanding_account_id = pm_account_id or journal.default_account_id.id
 
             payment_vals = {
                 'retention_id': self.id,
@@ -1123,11 +1125,11 @@ class AccountRetention(models.Model):
                         
                     if not payment.outstanding_account_id:
                         journal = payment.journal_id
-                        if payment.payment_type == 'outbound':
-                            outstanding = journal.default_account_id or journal.payment_credit_account_id
-                        else:
-                            outstanding = journal.default_account_id or journal.payment_debit_account_id
-                        
+                        pm_account = False
+                        if payment.payment_method_line_id and hasattr(payment.payment_method_line_id, 'payment_account_id'):
+                            pm_account = payment.payment_method_line_id.payment_account_id
+                            
+                        outstanding = pm_account or journal.default_account_id
                         if outstanding:
                             payment.outstanding_account_id = outstanding
                         elif payment.payment_method_line_id.payment_account_id:
