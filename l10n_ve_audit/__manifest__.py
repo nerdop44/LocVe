@@ -12,13 +12,19 @@ Módulo de Auditoría Fiscal para la Localización Venezolana (LocVe).
 - Registra de forma inmutable todas las acciones clave (creación, publicación, reversión, eliminación) sobre facturas y pagos.
 - Mantiene una Tabla de Auditoría inalterable accesible por el auditor fiscal.
     """,
-    'depends': ['account', 'l10n_ve_base', 'l10n_ve_invoice'],
+    'depends': ['account', 'l10n_ve_base', 'l10n_ve_invoice', 'sale', 'purchase', 'account_dual_currency'],
     'data': [
         'security/res_groups.xml',
         'security/ir.model.access.csv',
         'views/l10n_ve_audit_log_views.xml',
         'views/menu_views.xml',
+        'views/seniat_compliance_views.xml',
     ],
+    'assets': {
+        'web.assets_backend': [
+            'l10n_ve_audit/static/src/css/seniat_compliance.css',
+        ],
+    },
     'installable': True,
     'auto_install': False,
     'license': 'LGPL-3',

@@ -56,6 +56,7 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
         if not move.invoice_date:
             raise UserError(_("Check the move %s does not have an invoice date and its id is %s", move.name, move.id))
         multiplier = -1 if move.move_type == "out_refund" else 1
+        doc_type = self._determinate_type(move.move_type)
         return {
             "_id": move.id,
             "document_date": self._format_date(move.invoice_date),
@@ -63,7 +64,10 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
             "vat": move.vat,
             "partner_name": move.invoice_partner_display_name,
             "document_number": move.name,
-            "move_type": self._determinate_type(move.move_type),
+            "invoice_number": move.name if doc_type == "FAC" else "--",
+            "debit_number": move.name if doc_type == "ND" else "--",
+            "credit_number": move.name if doc_type == "NC" else "--",
+            "move_type": doc_type,
             "transaction_type": self._determinate_transaction_type(move),
             "number_invoice_affected": move.reversed_entry_id.name or "--",
             "correlative": move.correlative,
@@ -75,6 +79,7 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
             "amount_general_aliquot": taxes.get("amount_general_aliquot", 0) * multiplier,
             "tax_base_reduced_aliquot": taxes.get("tax_base_reduced_aliquot", 0) * multiplier,
             "tax_base_general_aliquot": taxes.get("tax_base_general_aliquot", 0) * multiplier,
+            "igtf_percibido": taxes.get("igtf_perceived", 0.0),
         }
 
     def _fields_purchase_book_line(self, move, taxes):
@@ -323,8 +328,18 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
                 "size": 6,
             },
             {
-                "name": "N° de documento",
-                "field": "document_number",
+                "name": "N° Factura",
+                "field": "invoice_number",
+                "size": 20,
+            },
+            {
+                "name": "N° Nota de Débito",
+                "field": "debit_number",
+                "size": 20,
+            },
+            {
+                "name": "N° Nota de Crédito",
+                "field": "credit_number",
                 "size": 20,
             },
             {
@@ -366,9 +381,12 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
                 "field": "amount_general_aliquot",
                 "format": "number",
             },
-            
-            
-            
+            {
+                "name": "IGTF Percibido (3%)",
+                "field": "igtf_percibido",
+                "format": "number",
+                "size": 15,
+            },
         ]
 
         if not self.company_id.not_show_reduced_aliquot_sale:
@@ -741,6 +759,7 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
             "amount_reduced_aliquot": 0.0,
             "amount_general_aliquot": 0.0,
             "amount_extend_aliquot": 0.0,
+            "igtf_perceived": 0.0,
         }
 
         if self.company_id.config_deductible_tax and self.report == "purchase":
@@ -801,7 +820,9 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
                 group_id = line.tax_line_id.tax_group_id.id
                 signed_tax = val * multiplier
                 
-                if group_id == exent_aliquot:
+                if line.tax_line_id.tax_group_id and 'IGTF' in line.tax_line_id.tax_group_id.name.upper():
+                    tax_result["igtf_perceived"] += signed_tax
+                elif group_id == exent_aliquot:
                     tax_result["amount_exempt_aliquot"] += signed_tax
                 elif group_id == reduced_aliquot:
                     tax_result["amount_reduced_aliquot"] += signed_tax
@@ -815,6 +836,22 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
         # 4. Asignar totales generales operacionales
         tax_result["amount_untaxed"] = total_untaxed_bs * multiplier
         tax_result["amount_taxed"] = total_tax_bs * multiplier
+        
+        # 5. Calcular IGTF percibido de los pagos asociados si aplica
+        payments_igtf = 0.0
+        if hasattr(move, 'invoice_payments_widget') and move.invoice_payments_widget:
+            content = move.invoice_payments_widget.get('content', []) if isinstance(move.invoice_payments_widget, dict) else []
+            for payment_info in content:
+                pay_id = payment_info.get('account_payment_id')
+                if pay_id:
+                    payment = move.env['account.payment'].browse(pay_id)
+                    if payment.is_igtf_on_foreign_exchange and payment.igtf_amount:
+                        if self.currency_system:
+                            rate = move.foreign_rate or (hasattr(payment, 'foreign_rate') and payment.foreign_rate) or 1.0
+                            payments_igtf += payment.igtf_amount * rate
+                        else:
+                            payments_igtf += payment.igtf_amount
+        tax_result["igtf_perceived"] += payments_igtf * multiplier
         
         # LOG DE TRAZABILIDAD (Se verá en Odoo.sh -> Logs -> Odoo)
         _logger.warning("V70 [Verdad Contable] Move: %s | Base: %s | Tax: %s | Lineas Prod: %s", 

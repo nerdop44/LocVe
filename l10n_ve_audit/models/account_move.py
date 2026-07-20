@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
-from odoo import models, fields, api
+from odoo import models, fields, api, _
+from odoo.exceptions import UserError
 
 class AccountMove(models.Model):
     _inherit = 'account.move'
 
     @api.model_create_multi
     def create(self, vals_list):
+        if not self.env.su and self.env.user.has_group('l10n_ve_audit.group_fiscal_auditor'):
+            raise UserError(_("Los auditores fiscales del SENIAT tienen acceso estrictamente de solo lectura."))
         moves = super(AccountMove, self).create(vals_list)
         for move in moves:
             if move.move_type in ['out_invoice', 'in_invoice', 'out_refund', 'in_refund', 'out_receipt', 'in_receipt']:
@@ -13,6 +16,11 @@ class AccountMove(models.Model):
                 details = f"Creación de documento tipo '{move.move_type}' en estado Borrador."
                 self.env['l10n_ve.audit.log'].log_event('create', move, details)
         return moves
+
+    def write(self, vals):
+        if not self.env.su and self.env.user.has_group('l10n_ve_audit.group_fiscal_auditor'):
+            raise UserError(_("Los auditores fiscales del SENIAT tienen acceso estrictamente de solo lectura."))
+        return super(AccountMove, self).write(vals)
 
     def action_post(self):
         res = super(AccountMove, self).write_vals_before_post_or_similar() if hasattr(self, 'write_vals_before_post_or_similar') else True
@@ -54,6 +62,8 @@ class AccountMove(models.Model):
         return res
 
     def unlink(self):
+        if not self.env.su and self.env.user.has_group('l10n_ve_audit.group_fiscal_auditor'):
+            raise UserError(_("Los auditores fiscales del SENIAT tienen acceso estrictamente de solo lectura."))
         # Capturar la información crítica antes de la destrucción del registro
         for move in self:
             if move.move_type in ['out_invoice', 'in_invoice', 'out_refund', 'in_refund', 'out_receipt', 'in_receipt']:

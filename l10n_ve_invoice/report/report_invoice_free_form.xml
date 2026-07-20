@@ -60,8 +60,6 @@
                             <div class="invoice-number">
                                 <t t-if="o.move_type in ['out_refund', 'in_refund']">
                                     <h4 style="color: #000; font-weight: bold; margin-bottom: 5px;">NOTA DE CRÉDITO</h4>
-                                    <span><strong>Nro. Control:</strong> <t t-if="o.correlative" t-out="o.correlative"/><t t-else="">No asignado</t></span>
-                                    <br/>
                                     <span><strong>Nro. Nota Crédito:</strong> <t t-if="o.name != '/'" t-out="o.name"/></span>
                                     <br/>
                                     
@@ -251,7 +249,7 @@
                     <t t-foreach="subtotal.get('tax_groups', [])" t-as="amount_by_group">
                         <tr>
                             <td>
-                                <span t-esc="'Total G ' + amount_by_group.get('group_name', '')"/>
+                                <span t-esc="'Base Imponible ' + amount_by_group.get('group_name', '')"/>
                             </td>
                             <td class="text-end o_price_total">
                                 <span class="text-nowrap" t-esc="amount_by_group.get('base_amount_currency', 0.0)"/>

@@ -27,6 +27,12 @@ class L10nVeAuditLog(models.Model):
     details = fields.Text(string="Detalles del Evento", readonly=True)
     company_id = fields.Many2one('res.company', string="Compañía", default=lambda self: self.env.company, readonly=True)
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        if not self.env.su and self.env.user.has_group('l10n_ve_audit.group_fiscal_auditor'):
+            raise UserError(_("Los auditores fiscales del SENIAT tienen acceso estrictamente de solo lectura."))
+        return super(L10nVeAuditLog, self).create(vals_list)
+
     # Inmutabilidad: Impedir cualquier tipo de edición sobre los registros existentes
     def write(self, vals):
         raise UserError(_("Los registros de auditoría fiscal son inmutables y no pueden ser modificados bajo ninguna circunstancia."))

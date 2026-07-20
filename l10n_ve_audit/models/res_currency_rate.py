@@ -7,16 +7,13 @@ class ResCurrencyRate(models.Model):
 
     def _check_rate_permission(self):
         """
-        Valida que el usuario tenga el rol de Administrador de Contabilidad
-        y se encuentre en Modo Desarrollador (Debug mode).
-        Permite bypass para superusuario (su) y tareas automáticas (cron/sudo sin usuario interactivo).
+        Valida que el usuario tenga el rol de Administrador de Contabilidad.
+        Bypass para superusuario (su).
         """
         if self.env.su:
             return
-        is_manager = self.env.user.has_group('account.group_account_manager')
-        is_no_one = self.env.user.has_group('base.group_no_one')
-        if not (is_manager and is_no_one):
-            raise UserError(_("No tiene privilegios suficientes para crear, modificar o eliminar tasas de cambio. Esta acción está reservada únicamente para Administradores de Contabilidad en Modo Desarrollador."))
+        if not self.env.user.has_group('account.group_account_manager'):
+            raise UserError(_("No tiene privilegios suficientes para crear tasas de cambio. Esta acción está reservada para Administradores de Contabilidad."))
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -46,27 +43,23 @@ class ResCurrencyRate(models.Model):
         return rates
 
     def write(self, vals):
-        # Aplicar restricciones de seguridad del ORM
-        self._check_rate_permission()
+        # Bloquear modificación manual por completo bajo regulación SENIAT
+        if not self.env.su:
+            raise UserError(_("Está prohibido modificar las tasas de cambio ya establecidas en el histórico por regulación del SENIAT."))
         
         # Capturar datos anteriores para detallar el log
         old_data = {rate.id: (rate.name, rate.rate, rate.currency_id.name) for rate in self}
         
         res = super(ResCurrencyRate, self).write(vals)
         
-        # Registrar evento en auditoría
+        # Registrar evento en auditoría (para acciones automáticas del sistema que usen write)
         for rate in self:
             old_name, old_rate, curr_name = old_data.get(rate.id, (None, None, None))
-            orig = "Ingreso Manual"
-            if self.env.context.get('from_cron'):
-                orig = "Cron (Sincronización Automática)"
-            elif self.env.context.get('from_button'):
-                orig = "Botón de Actualización Manual"
-
+            orig = "Cron/Procedimiento del Sistema"
             new_bcv = round(1.0 / rate.rate, 4) if rate.rate > 0 else 'N/A'
             old_bcv = round(1.0 / old_rate, 4) if old_rate and old_rate > 0 else 'N/A'
             
-            details = (f"Modificación de Tasa de Cambio. "
+            details = (f"Modificación de Tasa de Cambio (Sistema). "
                        f"Moneda: {rate.currency_id.name}. "
                        f"Fecha Tasa: {rate.name} (Antes: {old_name}). "
                        f"Valor Tasa Nuevo: {rate.rate} (Antes: {old_rate}). "
@@ -77,8 +70,9 @@ class ResCurrencyRate(models.Model):
         return res
 
     def unlink(self):
-        # Aplicar restricciones de seguridad del ORM
-        self._check_rate_permission()
+        # Bloquear eliminación manual por completo bajo regulación SENIAT
+        if not self.env.su:
+            raise UserError(_("Está prohibido eliminar las tasas de cambio históricas por regulación del SENIAT."))
         
         # Registrar evento antes de la eliminación física del registro
         for rate in self:
@@ -92,3 +86,10 @@ class ResCurrencyRate(models.Model):
             self.env['l10n_ve.audit.log'].log_event('rate_unlink', rate, details)
             
         return super(ResCurrencyRate, self).unlink()
+
+class ResCurrency(models.Model):
+    _inherit = 'res.currency'
+
+    def _compute_can_edit_rates(self):
+        for rec in self:
+            rec.can_edit_rates = False

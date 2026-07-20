@@ -107,8 +107,6 @@
                         <div class="col-5 text-end">
                             <t t-if="o.move_type in ['out_refund', 'in_refund']">
                                 <h4 style="color: #000; font-weight: bold; margin-bottom: 5px;">NOTA DE CRÉDITO</h4>
-                                <span><strong>Nro. Control:</strong> <t t-if="o.correlative" t-out="o.correlative"/><t t-else="">No asignado</t></span>
-                                <br/>
                                 <span><strong>Nro. Nota Crédito:</strong> <t t-if="o.name != '/'" t-out="o.name"/></span>
                                 <br/>
                                 
@@ -235,6 +233,9 @@
                         <div class="row">
                              <!-- Calculation of Totals for BOTH currencies using tax_totals or Tax Groups -->
                              <!-- We'll replicate logic manually to assume control over "Exento", "Subtotal", "IVA", "Total" -->
+                             <t t-set="tax_totals" t-value="o.tax_totals"/>
+                             <t t-set="usd_subtotals" t-value="tax_totals.get('subtotals') if o.currency_id == usd_currency else tax_totals.get('foreign_subtotals', [])"/>
+                             <t t-set="vef_subtotals" t-value="tax_totals.get('subtotals') if o.currency_id != usd_currency else tax_totals.get('foreign_subtotals', [])"/>
                              
                              <t t-set="amount_untaxed" t-value="o.amount_untaxed"/>
                              <t t-set="amount_tax" t-value="o.amount_tax"/>
@@ -299,10 +300,21 @@
                                         <td class="text-end"><strong>Subtotal</strong></td>
                                         <td class="text-end"><span t-esc="usd_untaxed" t-options='{"widget": "monetary", "display_currency": usd_currency}'/></td>
                                     </tr>
-                                    <tr>
-                                        <td class="text-end"><strong>IVA</strong></td>
-                                        <td class="text-end"><span t-esc="usd_tax" t-options='{"widget": "monetary", "display_currency": usd_currency}'/></td>
-                                    </tr>
+                                    <!-- Dynamic tax groups for USD -->
+                                    <t t-if="usd_subtotals">
+                                        <t t-foreach="usd_subtotals" t-as="subtotal">
+                                            <t t-foreach="subtotal.get('tax_groups', [])" t-as="amount_by_group">
+                                                <tr>
+                                                    <td class="text-end"><strong>Base <t t-esc="amount_by_group.get('group_name', '')"/></strong></td>
+                                                    <td class="text-end"><span t-esc="amount_by_group.get('base_amount_currency', 0.0)" t-options='{"widget": "monetary", "display_currency": usd_currency}'/></td>
+                                                </tr>
+                                                <tr>
+                                                     <td class="text-end"><strong><t t-esc="amount_by_group.get('group_name', '')"/></strong></td>
+                                                     <td class="text-end"><span t-esc="amount_by_group.get('tax_amount_currency', 0.0)" t-options='{"widget": "monetary", "display_currency": usd_currency}'/></td>
+                                                </tr>
+                                            </t>
+                                        </t>
+                                    </t>
                                     <tr> <!-- Border removed -->
                                         <td class="text-end"><strong>Total</strong></td>
                                         <td class="text-end"><span t-esc="usd_total" t-options='{"widget": "monetary", "display_currency": usd_currency}'/></td>
@@ -329,10 +341,21 @@
                                         <td class="text-end"><strong>Subtotal</strong></td>
                                         <td class="text-end"><span t-esc="vef_untaxed" t-options='{"widget": "monetary", "display_currency": vef_currency}'/></td>
                                     </tr>
-                                    <tr>
-                                        <td class="text-end"><strong>IVA</strong></td>
-                                        <td class="text-end"><span t-esc="vef_tax" t-options='{"widget": "monetary", "display_currency": vef_currency}'/></td>
-                                    </tr>
+                                    <!-- Dynamic tax groups for VEF -->
+                                    <t t-if="vef_subtotals">
+                                        <t t-foreach="vef_subtotals" t-as="subtotal">
+                                            <t t-foreach="subtotal.get('tax_groups', [])" t-as="amount_by_group">
+                                                <tr>
+                                                    <td class="text-end"><strong>Base <t t-esc="amount_by_group.get('group_name', '')"/></strong></td>
+                                                    <td class="text-end"><span t-esc="amount_by_group.get('base_amount_currency', 0.0)" t-options='{"widget": "monetary", "display_currency": vef_currency}'/></td>
+                                                </tr>
+                                                <tr>
+                                                     <td class="text-end"><strong><t t-esc="amount_by_group.get('group_name', '')"/></strong></td>
+                                                     <td class="text-end"><span t-esc="amount_by_group.get('tax_amount_currency', 0.0)" t-options='{"widget": "monetary", "display_currency": vef_currency}'/></td>
+                                                </tr>
+                                            </t>
+                                        </t>
+                                    </t>
                                     <tr> <!-- Border removed -->
                                         <td class="text-end"><strong>Total</strong></td>
                                         <td class="text-end"><span t-esc="vef_total" t-options='{"widget": "monetary", "display_currency": vef_currency}'/></td>
