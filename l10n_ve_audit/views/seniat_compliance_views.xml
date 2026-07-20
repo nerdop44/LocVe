@@ -89,10 +89,10 @@
             <field name="model">sale.order</field>
             <field name="inherit_id" ref="sale.view_order_tree"/>
             <field name="arch" type="xml">
-                <xpath expr="//tree" position="attributes">
+                <xpath expr="//list" position="attributes">
                     <attribute name="decoration-danger">invoice_status == 'to invoice'</attribute>
                 </xpath>
-                <xpath expr="//tree" position="inside">
+                <xpath expr="//list" position="inside">
                     <field name="invoice_status" column_invisible="1"/>
                 </xpath>
             </field>
@@ -103,10 +103,10 @@
             <field name="model">sale.order</field>
             <field name="inherit_id" ref="sale.view_quotation_tree"/>
             <field name="arch" type="xml">
-                <xpath expr="//tree" position="attributes">
+                <xpath expr="//list" position="attributes">
                     <attribute name="decoration-danger">invoice_status == 'to invoice'</attribute>
                 </xpath>
-                <xpath expr="//tree" position="inside">
+                <xpath expr="//list" position="inside">
                     <field name="invoice_status" column_invisible="1"/>
                 </xpath>
             </field>
