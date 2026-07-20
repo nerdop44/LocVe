@@ -11,7 +11,8 @@ from odoo.tools import (
     frozendict,
     get_lang,
     is_html_empty,
-    sql
+    sql,
+    SQL
 )
 import json
 
@@ -28,10 +29,24 @@ class AccountMove(models.Model):
                                       default=lambda self: self.env['res.currency'].search([('name', '=', 'USD')],
                                                                                            limit=1), )
 
+    # Campos de compatibilidad (Alias para evitar errores de validación de vista)
+    currency_vef_id = fields.Many2one("res.currency", related="currency_id_dif", string="Moneda VEF (Compatibilidad)")
+    vef_currency_id = fields.Many2one("res.currency", related="currency_id_dif", string="Moneda VEF (Compatibilidad 2)")
+
+    currency_id_dif_resolved = fields.Many2one("res.currency",
+                                               string="Moneda Dual Ref. Resuelta",
+                                               compute="_compute_currency_id_dif_resolved",
+                                               store=True)
+
+    @api.depends('company_id.currency_id_dif', 'currency_id_dif')
+    def _compute_currency_id_dif_resolved(self):
+        for rec in self:
+            rec.currency_id_dif_resolved = rec.company_id.currency_id_dif or rec.currency_id_dif
+
     acuerdo_moneda = fields.Boolean(string="Acuerdo de Factura Bs.", default=False)
 
     tax_today = fields.Float(string="Tasa de Factura", store=True,
-                             default=lambda self: self._default_tax_today(),
+                             default=lambda self: self.env.company.currency_id_dif.inverse_rate,
                              tracking=True)
 
     tax_today_edited = fields.Boolean(string="Tasa Manual", default=False)
@@ -50,12 +65,12 @@ class AccountMove(models.Model):
     amount_residual_usd = fields.Monetary(currency_field='currency_id_dif', compute='_compute_amount', string='Adeudado Ref.',
                                           readonly=True, store=True, copy=False)
     invoice_payments_widget_usd = fields.Binary(groups="account.group_account_invoice,account.group_account_readonly",
-                                              compute='_compute_payments_widget_reconciled_info_USD')
+                                               compute='_compute_payments_widget_reconciled_info_USD')
 
     amount_untaxed_bs = fields.Monetary(currency_field='company_currency_id', string="Base imponible Bs.", store=True, copy=False,
                                         compute="_amount_all_usd")
     amount_tax_bs = fields.Monetary(currency_field='company_currency_id', string="Impuestos Bs.", store=True, copy=False,
-                                    readonly=True, compute="_amount_all_usd")
+                                    readonly=True)
     amount_total_bs = fields.Monetary(currency_field='company_currency_id', string='Total Bs.', store=True,
                                       readonly=True,
                                       compute='_amount_all_usd', copy=False)
@@ -82,20 +97,11 @@ class AccountMove(models.Model):
         compute="_compute_depreciation_value_ref", inverse="_inverse_depreciation_value_ref", store=True, copy=False
     )
 
-    def _default_tax_today(self):
-        """Calcular la tasa BCV (cuántos Bs equivalen a 1 USD)."""
-        usd = self.env['res.currency'].search([('name', '=', 'USD')], limit=1)
-        vef = self.env['res.currency'].search([('name', 'in', ('VEF', 'VES', 'Bs', 'VED'))], limit=1)
-        if usd and vef and usd.id != vef.id:
-            return usd._get_conversion_rate(
-                usd, vef, self.env.company, fields.Date.today()
-            )
-        return 1.0
-
     def _post(self, soft=True):
         res = super(AccountMove, self)._post(soft=soft)
         for move in self:
             move._verificar_pagos()
+        return res
 
     @api.depends('asset_id', 'depreciation_value', 'asset_id.total_depreciable_value', 'asset_id.already_depreciated_amount_import')
     def _compute_depreciation_cumulative_value(self):
@@ -110,7 +116,8 @@ class AccountMove(models.Model):
         for move in self:
             asset = move.asset_id or move.reversed_entry_id.asset_id  # reversed moves are created before being assigned to the asset
             if asset:
-                account = asset.account_depreciation_expense_id if asset.asset_type != 'sale' else asset.account_depreciation_id
+                asset_type = getattr(asset, 'asset_type', 'purchase')
+                account = asset.account_depreciation_expense_id if asset_type != 'sale' else asset.account_depreciation_id
                 asset_depreciation = sum(
                     move.line_ids.filtered(lambda l: l.account_id == account).mapped('balance_usd')
                 )
@@ -142,7 +149,8 @@ class AccountMove(models.Model):
         for move in self:
             asset = move.asset_id
             amount = abs(move.depreciation_value_ref)
-            account = asset.account_depreciation_expense_id if asset.asset_type != 'sale' else asset.account_depreciation_id
+            asset_type = getattr(asset, 'asset_type', 'purchase')
+            account = asset.account_depreciation_expense_id if asset_type != 'sale' else asset.account_depreciation_id
             move.write({'line_ids': [
                 Command.update(line.id, {
                     'balance_usd': amount if line.account_id == account else -amount,
@@ -158,29 +166,41 @@ class AccountMove(models.Model):
                 line._compute_amount_residual_usd()
             rec.verificar_pagos = True
 
-    @api.depends('invoice_date', 'company_id')
+    @api.depends('invoice_date', 'date', 'company_id')
     def _compute_date(self):
         res = super(AccountMove, self)._compute_date()
         for rec in self:
-            if rec.invoice_date and rec.company_id.currency_id_dif and not rec.tax_today_edited:
-                new_rate_ids = self.env.company.currency_id_dif._get_rates(self.env.company, rec.invoice_date)
-                if new_rate_ids:
-                    new_rate = 1 / new_rate_ids[self.env.company.currency_id_dif.id]
-
+            if rec.state == 'posted':
+                continue
+            if rec.company_id.currency_id_dif and not rec.tax_today_edited:
+                if rec.tax_today > 0.0:
+                    continue
+                date_to_use = rec.invoice_date or rec.date or fields.Date.context_today(rec)
+                new_rate_ids = rec.company_id.currency_id_dif._get_rates(rec.company_id, date_to_use)
+                if new_rate_ids and rec.company_id.currency_id_dif.id in new_rate_ids:
+                    new_rate = 1 / new_rate_ids[rec.company_id.currency_id_dif.id]
                     rec.tax_today = new_rate
-                    # Calcular totales al cambiar tasa
-                    rec._amount_all_usd()
-        # if self.invoice_date and self.company_id.currency_id_dif and not self.tax_today_edited:
-        #     new_rate_ids = self.env.company.currency_id_dif._get_rates(self.env.company, self.invoice_date)
-        #     if new_rate_ids:
-        #         new_rate = 1 / new_rate_ids[self.env.company.currency_id_dif.id]
-        #
-        #         self.tax_today = new_rate
+                else:
+                    # No hay tasa registrada para la fecha historica: usar la tasa actual como fallback
+                    fallback_rate = rec.company_id.currency_id_dif.inverse_rate if rec.company_id.currency_id_dif else 0.0
+                    if fallback_rate and fallback_rate > 0:
+                        rec.tax_today = fallback_rate
+
+
+    @api.onchange('tax_today_edited')
+    def _onchange_tax_today_edited(self):
+        for rec in self:
+            if not rec.tax_today_edited:
+                date_to_use = rec.invoice_date or rec.date or fields.Date.context_today(rec)
+                new_rate_ids = rec.company_id.currency_id_dif._get_rates(rec.company_id, date_to_use)
+                if new_rate_ids and rec.company_id.currency_id_dif.id in new_rate_ids:
+                    rec.tax_today = 1 / new_rate_ids[rec.company_id.currency_id_dif.id]
+                else:
+                    rec.tax_today = rec.company_id.currency_id_dif.inverse_rate if rec.company_id.currency_id_dif else 1.0
 
 
     @api.model_create_multi
     def create(self, values):
-
         #verificar si viene asiento de diferencia
         diferencia = False
         line_ids = []
@@ -190,9 +210,6 @@ class AccountMove(models.Model):
             if 'line_ids' in val:
                 if val['line_ids']:
                     for idx, l in enumerate(val['line_ids']):
-
-
-
                         if diferencia:
                             #verifica si el texto l[2]['name'] contiene la palabra diferencia
                             if 'name' in l[2] and 'Diferencia en tasa' in l[2]['name']:
@@ -204,7 +221,7 @@ class AccountMove(models.Model):
                                 company_id = journal_id.company_id
                                 l[2]['currency_id'] = company_id.currency_id.id
                                 l[2]['debit'] = l[2]['balance'] if l[2]['balance'] > 0 else 0
-                                l[2]['credit'] = abs(l[2]['balance']) if l[2].get('balance', 0) < 0 else 0  # LocVe: fix bug crédito negativo
+                                l[2]['credit'] = abs(l[2]['balance']) if l[2]['balance'] < 0 else 0
                                 l[2]['partner_id'] = None
                                 l[2]['amount_currency'] = l[2]['balance']
                                 line_ids.append(l)
@@ -218,70 +235,127 @@ class AccountMove(models.Model):
                     module_dual_currency = self.env['ir.module.module'].sudo().search(
                         [('name', '=', 'account_dual_currency'), ('state', '=', 'installed')])
                     if module_dual_currency:
-                        val.update({'tax_today': self.env.company.currency_id_dif.inverse_rate})
-                # elif 'tax_today' in val:
-                #     if val['tax_today'] == 0:
-                #         module_dual_currency = self.env['ir.module.module'].sudo().search(
-                #             [('name', '=', 'account_dual_currency'), ('state', '=', 'installed')])
-                #         if module_dual_currency:
-                #             val.update({'tax_today': self.env.company.currency_id_dif.tasa_referencia})
+                        currency_dif = self.env.company.currency_id_dif
+                        move_currency_id = val.get('currency_id')
+                        # If the invoice currency is the same as the dual reference currency (e.g. USD invoice),
+                        # tax_today must be 1.0 to avoid double currency conversion in the accounting lines.
+                        if move_currency_id and currency_dif and move_currency_id == currency_dif.id:
+                            val.update({'tax_today': 1.0})
+                        else:
+                            date_to_use = val.get('invoice_date') or val.get('date') or fields.Date.context_today(self)
+                            new_rate_ids = currency_dif._get_rates(self.env.company, date_to_use) if currency_dif else {}
+                            if new_rate_ids and currency_dif.id in new_rate_ids:
+                                db_rate = new_rate_ids[currency_dif.id]
+                            else:
+                                db_rate = currency_dif.inverse_rate if currency_dif else 1.0
+                            
+                            if 0.0 < db_rate < 1.0:
+                                new_rate = 1.0 / db_rate
+                            else:
+                                new_rate = db_rate
+                            val.update({'tax_today': new_rate})
 
+                # Sincronizar tasas si se proporciona alguna
+                tax_today = val.get('tax_today', 0.0)
+                foreign_rate = val.get('foreign_rate', 0.0)
+                foreign_inverse_rate = val.get('foreign_inverse_rate', 0.0)
+                if tax_today > 0 and not foreign_rate:
+                    val['foreign_rate'] = tax_today
+                    if self.env.company.currency_id.name == 'USD':
+                        val['foreign_inverse_rate'] = tax_today
+                    else:
+                        val['foreign_inverse_rate'] = 1.0 / tax_today
+                elif foreign_rate > 0 and not tax_today:
+                    val['tax_today'] = foreign_rate
+                    if self.env.company.currency_id.name == 'USD':
+                        val['foreign_inverse_rate'] = foreign_rate
+                    else:
+                        val['foreign_inverse_rate'] = 1.0 / foreign_rate
+                elif foreign_inverse_rate > 0 and not tax_today and not foreign_rate:
+                    if self.env.company.currency_id.name == 'USD':
+                        val['tax_today'] = foreign_inverse_rate
+                        val['foreign_rate'] = foreign_inverse_rate
+                    else:
+                        val['tax_today'] = 1.0 / foreign_inverse_rate
+                        val['foreign_rate'] = 1.0 / foreign_inverse_rate
 
         res = super(AccountMove, self).create(values)
         return res
-
-    # def write(self, vals):
-    #     #
-    #     return super(AccountMove, self).write(vals)
 
     @api.depends('currency_id')
     def _same_currency(self):
         self.same_currency = self.currency_id == self.env.company.currency_id
 
 
-    @api.onchange('invoice_date', 'date')
-    def _onchange_invoice_date_rate(self):
-        for rec in self:
-            if not rec.tax_today_edited:
-                usd_currency = self.env['res.currency'].search([('name', '=', 'USD')], limit=1)
-                vef_currency = self.env['res.currency'].search([('name', 'in', ('VEF', 'VES', 'Bs'))], limit=1)
-                if usd_currency and vef_currency and usd_currency.id != vef_currency.id:
-                    rec.tax_today = usd_currency._get_conversion_rate(
-                        usd_currency, vef_currency, rec.company_id, rec.invoice_date or rec.date or fields.Date.today()
-                    )
-                rec._onchange_tax_today()
-
     @api.onchange('tax_today')
     def _onchange_tax_today(self):
         self = self.with_context(check_move_validity=False)
         for rec in self:
             if not rec.move_type == 'entry':
-                is_vef = rec.currency_id.name in ('VEF', 'VES', 'Bs')
                 for l in rec.invoice_line_ids:
-                    # Si la factura es en Bs, el precio unitario base (en Bs) = Precio USD * Tasa
-                    # Si es en USD, el precio unitario base = Precio USD
-                    l.price_unit = (l.price_unit_usd * rec.tax_today) if is_vef else l.price_unit_usd
+                    if rec.currency_id == rec.company_id.currency_id:
+                        if l.price_unit:
+                            # Recalcular price_unit_usd basándose en la tasa:
+                            if rec.company_id.currency_id.name == 'USD':
+                                l.price_unit_usd = l.price_unit * rec.tax_today
+                            else:
+                                l.price_unit_usd = l.price_unit / rec.tax_today if rec.tax_today > 0 else 0.0
+                        else:
+                            if rec.company_id.currency_id.name == 'USD':
+                                l.price_unit = l.price_unit_usd / rec.tax_today if rec.tax_today > 0 else 0.0
+                            else:
+                                l.price_unit = l.price_unit_usd * rec.tax_today
+                    else:
+                        if l.price_unit:
+                            l.price_unit_usd = l.price_unit
+                        else:
+                            l.price_unit = l.price_unit_usd
                 rec._onchange_quick_edit_total_amount()
                 rec._onchange_quick_edit_line_ids()
                 rec._compute_tax_totals()
                 rec.invoice_line_ids._compute_totals()
 
+                # Update the accounting lines (line_ids) in the UI immediately
+                for aml in rec.line_ids:
+                    if aml.debit != 0:
+                        if aml.currency_id == rec.company_id.currency_id_dif:
+                            aml.debit_usd = abs(aml.amount_currency)
+                        else:
+                            if rec.company_id.currency_id.name == 'USD':
+                                aml.debit_usd = aml.debit * rec.tax_today
+                            else:
+                                aml.debit_usd = (aml.debit / rec.tax_today) if rec.tax_today > 0 else 0
+                    else:
+                        aml.debit_usd = 0
+                    if aml.credit != 0:
+                        if aml.currency_id == rec.company_id.currency_id_dif:
+                            aml.credit_usd = abs(aml.amount_currency)
+                        else:
+                            if rec.company_id.currency_id.name == 'USD':
+                                aml.credit_usd = aml.credit * rec.tax_today
+                            else:
+                                aml.credit_usd = (aml.credit / rec.tax_today) if rec.tax_today > 0 else 0
+                    else:
+                        aml.credit_usd = 0
+                    aml.balance_usd = aml.debit_usd - aml.credit_usd
+                    # Recalculate amount_residual_usd
+                    reconciled_balance = sum(aml.matched_credit_ids.mapped('amount_usd')) \
+                                         - sum(aml.matched_debit_ids.mapped('amount_usd'))
+                    aml.amount_residual_usd = aml.balance_usd - reconciled_balance
+
             else:
-
-                #model_active = self._context.get('active_model')
-
                 for aml in rec.with_context(check_move_validity=False).line_ids:
-                    #
-                    #if aml.debit_usd > 0:
-                    #    pass
-                        #aml.with_context(check_move_validity=False).debit = aml.debit_usd * rec.tax_today
                     if aml.debit_usd == 0 and aml.debit > 0:
-                        aml.with_context(check_move_validity=False).debit_usd = (aml.debit / rec.tax_today) if rec.tax_today > 0 else 0
-                    #if aml.credit_usd > 0:
-                    #    pass
-                        #aml.with_context(check_move_validity=False).credit = aml.credit_usd * rec.tax_today
+                        if rec.company_id.currency_id.name == 'USD':
+                            aml.with_context(check_move_validity=False).debit_usd = aml.debit * rec.tax_today
+                        else:
+                            aml.with_context(check_move_validity=False).debit_usd = (aml.debit / rec.tax_today) if rec.tax_today > 0 else 0
                     if aml.credit_usd == 0 and aml.credit > 0:
-                        aml.with_context(check_move_validity=False).credit_usd = (aml.credit / rec.tax_today) if rec.tax_today > 0 else 0
+                        if rec.company_id.currency_id.name == 'USD':
+                            aml.with_context(check_move_validity=False).credit_usd = aml.credit * rec.tax_today
+                        else:
+                            aml.with_context(check_move_validity=False).credit_usd = (aml.credit / rec.tax_today) if rec.tax_today > 0 else 0
+                    aml.balance_usd = aml.debit_usd - aml.credit_usd
 
     @api.depends('currency_id_dif')
     def _name_ref(self):
@@ -291,27 +365,23 @@ class AccountMove(models.Model):
     @api.onchange('currency_id')
     def _onchange_currency(self):
         for rec in self:
-            # Sincronizamos la tasa al cambiar de moneda si no ha sido editada manualmente
-            if not rec.tax_today_edited:
-                usd_currency = self.env['res.currency'].search([('name', '=', 'USD')], limit=1)
-                vef_currency = self.env['res.currency'].search([('name', 'in', ('VEF', 'VES', 'Bs'))], limit=1)
-                if usd_currency and vef_currency and usd_currency.id != vef_currency.id:
-                    rec.tax_today = usd_currency._get_conversion_rate(
-                        usd_currency, vef_currency, rec.company_id, rec.invoice_date or fields.Date.today()
-                    )
+            if rec.currency_id == self.env.company.currency_id:
+                for l in rec.invoice_line_ids:
+                    l.currency_id = rec.currency_id
+                    if rec.company_id.currency_id.name == 'USD':
+                        l.price_unit = (l.price_unit_usd / (rec.tax_today if rec.tax_today > 0 else 1.0))
+                    else:
+                        l.price_unit = (l.price_unit_usd * (rec.tax_today if rec.tax_today > 0 else 1.0))
 
-            is_vef = rec.currency_id.name in ('VEF', 'VES', 'Bs')
-            for l in rec.invoice_line_ids:
-                l.currency_id = rec.currency_id
-                l.price_unit = (l.price_unit_usd * rec.tax_today) if is_vef else l.price_unit_usd
+            else:
+                for l in rec.invoice_line_ids:
+                    l.currency_id = rec.currency_id
+                    l.price_unit = l.price_unit_usd
 
-            # Sincronizar también los apuntes contables
             for aml in rec.line_ids:
                 aml.currency_id = rec.currency_id
                 aml._compute_currency_rate()
 
-            # Forzar actualización de totales y líneas
-            rec._onchange_tax_today()
 
     @api.depends('state', 'move_type')
     def _edit_trm(self):
@@ -329,7 +399,6 @@ class AccountMove(models.Model):
                         edit_trm = True
                     else:
                         edit_trm = False
-            # #
             rec.edit_trm = edit_trm
 
     @api.depends(
@@ -348,8 +417,8 @@ class AccountMove(models.Model):
         'line_ids.full_reconcile_id','tax_today')
     def _compute_amount(self):
         for move in self:
-            self.env.context = dict(self.env.context, tasa_factura=move.tax_today, calcular_dual_currency=True)
-            super(AccountMove, self)._compute_amount()
+            move_ctx = move.with_context(tasa_factura=move.tax_today, calcular_dual_currency=True)
+            super(AccountMove, move_ctx)._compute_amount()
             total_residual = 0.0
             total = 0.0
             for line in move.line_ids:
@@ -364,64 +433,113 @@ class AccountMove(models.Model):
                         total_residual += line.amount_residual_usd
             move.amount_residual_usd = total_residual
             move.amount_total_signed_usd = abs(total) if move.move_type == 'entry' else -total
-        self.env.context = dict(self.env.context, tasa_factura=None, calcular_dual_currency=False)
-
-    currency_vef_id = fields.Many2one("res.currency", string="Moneda Bs.", compute="_compute_currency_vef_id")
-
-    @api.depends('company_id')
-    def _compute_currency_vef_id(self):
-        vef = self.env['res.currency'].search([('name', 'in', ('VEF', 'VES', 'Bs', 'VED'))], limit=1)
-        for rec in self:
-            rec.currency_vef_id = vef
 
     @api.depends(
-        'invoice_line_ids.price_subtotal',
-        'invoice_line_ids.tax_ids',
-        'amount_untaxed',
-        'amount_total',
+        'tax_totals',
         'currency_id_dif',
         'currency_id',
-        'tax_today')
+        'tax_today',
+        'line_ids.balance_usd',
+        'move_type'
+    )
     def _amount_all_usd(self):
         for rec in self:
-            if rec.is_invoice(include_receipts=True):
-                # Detección explícita: ¿Es la factura en Bolívares?
-                is_vef = rec.currency_id.name in ('VEF', 'VES', 'Bs', 'VED')
-                tasa = rec.tax_today or 0.0
+            # Sincronización proactiva y segura de tasas para evitar desalineación o tasa a 0
+            if rec.company_id.currency_id_dif and not rec.tax_today_edited:
+                # Si tax_today es 0 pero la localización tiene tasa, usarla
+                if (not rec.tax_today or rec.tax_today <= 0.0) and getattr(rec, 'foreign_rate', 0.0) > 0.0:
+                    rec.tax_today = rec.foreign_rate
                 
-                if is_vef:
-                    # Factura en VEF → Referencia USD = Monto / Tasa
-                    rec.amount_untaxed_usd = rec.amount_untaxed / tasa if tasa > 0 else 0.0
-                    rec.amount_tax_usd = rec.amount_tax / tasa if tasa > 0 else 0.0
-                    rec.amount_total_usd = rec.amount_total / tasa if tasa > 0 else 0.0
-                    # Bs. = Monto directo
-                    rec.amount_untaxed_bs = rec.amount_untaxed
-                    rec.amount_tax_bs = rec.amount_tax
-                    rec.amount_total_bs = rec.amount_total
-                else:
-                    # Factura en moneda no-Bs (asumimos USD) → Ref = Monto directo
-                    rec.amount_untaxed_usd = rec.amount_untaxed
-                    rec.amount_tax_usd = rec.amount_tax
-                    rec.amount_total_usd = rec.amount_total
-                    # Bs. = Monto * Tasa
-                    rec.amount_untaxed_bs = rec.amount_untaxed * tasa
-                    rec.amount_tax_bs = rec.amount_tax * tasa
-                    rec.amount_total_bs = rec.amount_total * tasa
-            else:
-                rec.amount_untaxed_usd = 0.0
-                rec.amount_tax_usd = 0.0
-                rec.amount_total_usd = 0.0
-                rec.amount_untaxed_bs = 0.0
-                rec.amount_tax_bs = 0.0
-                rec.amount_total_bs = 0.0
+                # Si sigue siendo 0, buscar de forma proactiva la tasa de cambio en Odoo
+                if not rec.tax_today or rec.tax_today <= 0.0:
+                    date_to_use = rec.invoice_date or rec.date or fields.Date.context_today(rec)
+                    new_rate_ids = rec.company_id.currency_id_dif._get_rates(rec.company_id, date_to_use)
+                    if new_rate_ids and rec.company_id.currency_id_dif.id in new_rate_ids:
+                        db_rate = new_rate_ids[rec.company_id.currency_id_dif.id]
+                        if 0.0 < db_rate < 1.0:
+                            new_rate = 1.0 / db_rate
+                        else:
+                            new_rate = db_rate
+                        if new_rate > 0.0:
+                            rec.tax_today = new_rate
 
-    @api.onchange('invoice_line_ids', 'tax_today', 'currency_id', 'line_ids')
-    def _onchange_recompute_dual_totals(self):
-        """Forzar recálculo dinámico en el cliente web antes de guardar."""
-        for rec in self:
+            # Alinear campos de la localización si tax_today es válido
+            if rec.tax_today > 0.0:
+                if hasattr(rec, 'foreign_rate') and rec.foreign_rate != rec.tax_today:
+                    rec.foreign_rate = rec.tax_today
+                if hasattr(rec, 'foreign_inverse_rate'):
+                    if rec.company_id.currency_id.name == 'USD':
+                        expected_inverse = rec.tax_today
+                    else:
+                        expected_inverse = 1.0 / rec.tax_today
+                    if abs(rec.foreign_inverse_rate - expected_inverse) > 1e-7:
+                        rec.foreign_inverse_rate = expected_inverse
+
+            rec.amount_untaxed_usd = 0
+            rec.amount_tax_usd = 0
+            rec.amount_total_usd = 0
+            rec.amount_untaxed_bs = 0
+            rec.amount_tax_bs = 0
+            rec.amount_total_bs = 0
+
+            # 1. Caso Facturas (Invoices/Refunds)
             if rec.is_invoice(include_receipts=True):
-                rec._amount_all_usd()
+                tax_totals = rec.tax_totals or {}
+                # Priorizar montos ya calculados por l10n_ve_tax
+                untaxed_usd = tax_totals.get('foreign_amount_untaxed')
+                tax_usd = tax_totals.get('foreign_amount_tax')
+                total_usd = tax_totals.get('foreign_amount_total')
 
+                if rec.company_id.currency_id.name == 'USD':
+                    # Company is USD
+                    if rec.currency_id.name == 'USD':
+                        rec.amount_untaxed_usd = rec.amount_untaxed
+                        rec.amount_total_usd = rec.amount_total
+                        rec.amount_tax_usd = rec.amount_total - rec.amount_untaxed
+                        
+                        rec.amount_untaxed_bs = untaxed_usd if untaxed_usd is not None else (rec.amount_untaxed * rec.tax_today)
+                        rec.amount_total_bs = total_usd if total_usd is not None else (rec.amount_total * rec.tax_today)
+                        rec.amount_tax_bs = rec.amount_total_bs - rec.amount_untaxed_bs
+                    else:
+                        # Invoice is VES
+                        rec.amount_untaxed_bs = rec.amount_untaxed
+                        rec.amount_total_bs = rec.amount_total
+                        rec.amount_tax_bs = rec.amount_total - rec.amount_untaxed
+                        
+                        rec.amount_untaxed_usd = untaxed_usd if untaxed_usd is not None else ((rec.amount_untaxed / rec.tax_today) if rec.tax_today > 0 else 0)
+                        rec.amount_total_usd = total_usd if total_usd is not None else ((rec.amount_total / rec.tax_today) if rec.tax_today > 0 else 0)
+                        rec.amount_tax_usd = rec.amount_total_usd - rec.amount_untaxed_usd
+                else:
+                    # Company is VES
+                    if rec.currency_id == rec.company_id.currency_id:
+                        # Invoice is VES
+                        rec.amount_untaxed_bs = rec.amount_untaxed
+                        rec.amount_total_bs = rec.amount_total
+                        rec.amount_tax_bs = rec.amount_total - rec.amount_untaxed
+                        
+                        rec.amount_untaxed_usd = untaxed_usd if untaxed_usd is not None else ((rec.amount_untaxed / rec.tax_today) if rec.tax_today > 0 else 0)
+                        rec.amount_total_usd = total_usd if total_usd is not None else ((rec.amount_total / rec.tax_today) if rec.tax_today > 0 else 0)
+                        rec.amount_tax_usd = rec.amount_total_usd - rec.amount_untaxed_usd
+                    else:
+                        # Invoice is USD
+                        rec.amount_untaxed_usd = rec.amount_untaxed
+                        rec.amount_total_usd = rec.amount_total
+                        rec.amount_tax_usd = rec.amount_total - rec.amount_untaxed
+                        
+                        rec.amount_untaxed_bs = untaxed_usd if untaxed_usd is not None else (rec.amount_untaxed * rec.tax_today)
+                        rec.amount_total_bs = total_usd if total_usd is not None else (rec.amount_total * rec.tax_today)
+                        rec.amount_tax_bs = rec.amount_total_bs - rec.amount_untaxed_bs
+
+            # 2. Caso Asientos Manuales (MISC / entry)
+            elif rec.move_type == 'entry':
+                # Sumamos el balance_usd de las líneas (debe - haber en USD)
+                # Para el total "bruto" del asiento, sumamos los débitos USD
+                total_usd = sum(rec.line_ids.mapped('debit_usd'))
+                rec.amount_total_usd = total_usd
+                rec.amount_untaxed_usd = total_usd
+                
+                rec.amount_total_bs = sum(rec.line_ids.mapped('debit'))
+                rec.amount_untaxed_bs = rec.amount_total_bs
 
     @api.depends('move_type', 'line_ids.amount_residual_usd')
     def _compute_payments_widget_reconciled_info_USD(self):
@@ -458,7 +576,7 @@ class AccountMove(models.Model):
                         # these are necessary for the views to change depending on the values
                         'is_exchange': reconciled_partial['is_exchange'],
                         'amount_company_currency': formatLang(self.env, abs(counterpart_line.balance_usd),
-                                                              currency_obj=counterpart_line.company_id.currency_id_dif),
+                                                               currency_obj=counterpart_line.company_id.currency_id_dif),
                         'amount_foreign_currency': foreign_currency and formatLang(self.env,
                                                                                    abs(counterpart_line.amount_currency),
                                                                                    currency_obj=foreign_currency)
@@ -471,10 +589,6 @@ class AccountMove(models.Model):
                     move.amount_residual_usd = move.amount_total_usd - total_pagado
                 else:
                     move.amount_residual_usd = 0
-                # if move.amount_residual_usd > 0:
-                #     move.payment_state = 'partial'
-                # else:
-                #     move.payment_state = 'paid'
             else:
                 move.amount_residual_usd = move.amount_total_usd
                 move.invoice_payments_widget_usd = False
@@ -498,14 +612,11 @@ class AccountMove(models.Model):
 
     def _get_reconciled_info_JSON_values_bs(self):
         self.ensure_one()
-        foreign_currency = self.currency_id if self.currency_id != self.company_id.currency_id else False
-
         reconciled_vals = []
         pay_term_line_ids = self.line_ids.filtered(lambda line: line.account_id.account_type in ('asset_receivable', 'liability_payable'))
         partials = pay_term_line_ids.mapped('matched_debit_ids') + pay_term_line_ids.mapped('matched_credit_ids')
         for partial in partials:
             counterpart_lines = partial.debit_move_id + partial.credit_move_id
-
             counterpart_line = counterpart_lines.filtered(lambda line: line not in self.line_ids)
 
             if counterpart_line.credit > 0:
@@ -531,7 +642,6 @@ class AccountMove(models.Model):
                 'move_id': counterpart_line.move_id.id,
                 'ref': ref,
             })
-        # #
         return reconciled_vals
 
     def _get_all_reconciled_invoice_partials_USD(self):
@@ -540,7 +650,8 @@ class AccountMove(models.Model):
         if not reconciled_lines:
             return {}
 
-        query = '''
+        query = SQL(
+            """
             SELECT
                 part.id,
                 part.exchange_move_id,
@@ -548,9 +659,7 @@ class AccountMove(models.Model):
                 part.credit_move_id AS counterpart_line_id
             FROM account_partial_reconcile part
             WHERE part.debit_move_id IN %s
-
             UNION ALL
-
             SELECT
                 part.id,
                 part.exchange_move_id,
@@ -558,8 +667,11 @@ class AccountMove(models.Model):
                 part.debit_move_id AS counterpart_line_id
             FROM account_partial_reconcile part
             WHERE part.credit_move_id IN %s
-        '''
-        self._cr.execute(query, [tuple(reconciled_lines.ids)] * 2)
+            """,
+            tuple(reconciled_lines.ids),
+            tuple(reconciled_lines.ids),
+        )
+        self._cr.execute(query)
 
         partial_values_list = []
         counterpart_line_ids = set()
@@ -576,24 +688,28 @@ class AccountMove(models.Model):
                 exchange_move_ids.add(values['exchange_move_id'])
 
         if exchange_move_ids:
-            query = '''
+            query = SQL(
+                """
                 SELECT
                     part.id,
                     part.credit_move_id AS counterpart_line_id
                 FROM account_partial_reconcile part
                 JOIN account_move_line credit_line ON credit_line.id = part.credit_move_id
                 WHERE credit_line.move_id IN %s AND part.debit_move_id IN %s
-
                 UNION ALL
-
                 SELECT
                     part.id,
                     part.debit_move_id AS counterpart_line_id
                 FROM account_partial_reconcile part
                 JOIN account_move_line debit_line ON debit_line.id = part.debit_move_id
                 WHERE debit_line.move_id IN %s AND part.credit_move_id IN %s
-            '''
-            self._cr.execute(query, [tuple(exchange_move_ids), tuple(counterpart_line_ids)] * 2)
+                """,
+                tuple(exchange_move_ids),
+                tuple(counterpart_line_ids),
+                tuple(exchange_move_ids),
+                tuple(counterpart_line_ids),
+            )
+            self._cr.execute(query)
 
             for values in self._cr.dictfetchall():
                 counterpart_line_ids.add(values['counterpart_line_id'])
@@ -615,53 +731,12 @@ class AccountMove(models.Model):
     def js_assign_outstanding_line(self, line_id):
         lines = self.env['account.move.line'].browse(line_id)
         lines += self.line_ids.filtered(lambda line: line.account_id == lines[0].account_id and not line.reconciled)
-        lines._compute_amount_residual_usd()
         res = super(AccountMove, self).js_assign_outstanding_line(line_id)
+        lines._compute_amount_residual_usd()
         return res
 
-    # def js_assign_outstanding_line(self, line_id):
-    #     ''' Called by the 'payment' widget to reconcile a suggested journal item to the present
-    #     invoice.
-    #
-    #     :param line_id: The id of the line to reconcile with the current invoice.
-    #     '''
-    #     self.ensure_one()
-    #     lines = self.env['account.move.line'].browse(line_id)
-    #     l = self.line_ids.filtered(lambda line: line.account_id == lines[0].account_id and not line.reconciled)
-    #     if abs(lines[0].amount_residual) == 0 and abs(lines[0].amount_residual_usd) > 0:
-    #         if l.full_reconcile_id:
-    #             l.full_reconcile_id.unlink()
-    #         partial = self.env['account.partial.reconcile'].create([{
-    #             'amount': 0,
-    #             'amount_usd': l.move_id.amount_residual_usd if abs(
-    #                 lines[0].amount_residual_usd) > l.move_id.amount_residual_usd else abs(
-    #                 lines[0].amount_residual_usd),
-    #             'debit_amount_currency': 0,
-    #             'credit_amount_currency': 0,
-    #             'debit_move_id': l.id,
-    #             'credit_move_id': line_id,
-    #         }])
-    #         p = (lines + l).reconcile()
-    #         (lines + l)._compute_amount_residual_usd()
-    #         return p
-    #     else:
-    #         results = (lines + l).reconcile()
-    #         if 'partials' in results:
-    #             if results['partials'].amount_usd == 0:
-    #                 monto_usd = 0
-    #                 if abs(lines[0].amount_residual_usd) > 0:
-    #
-    #                     # #
-    #                     if abs(lines[0].amount_residual_usd) > self.amount_residual_usd:
-    #                         # #
-    #                         monto_usd = self.amount_residual_usd
-    #                     else:
-    #                         # #
-    #                         monto_usd = abs(lines[0].amount_residual_usd)
-    #                 results['partials'].write({'amount_usd': monto_usd})
-    #                 lines[0]._compute_amount_residual_usd()
-    #         return results
 
+    @api.depends('state', 'payment_state', 'line_ids.reconciled', 'line_ids.amount_residual', 'line_ids.amount_residual_currency')
     def _compute_payments_widget_to_reconcile_info(self):
         for move in self:
             move.invoice_outstanding_credits_debits_widget = False
@@ -680,7 +755,7 @@ class AccountMove(models.Model):
                 ('parent_state', '=', 'posted'),
                 ('partner_id', '=', move.commercial_partner_id.id),
                 ('reconciled', '=', False),
-                '|','|', ('amount_residual', '!=', 0.0), ('amount_residual_usd', '!=', 0.0),('amount_residual_currency', '!=', 0.0),
+                '|', ('amount_residual', '!=', 0.0), ('amount_residual_currency', '!=', 0.0),
             ]
 
             payments_widget_vals = {'outstanding': True, 'content': [], 'move_id': move.id}
@@ -693,52 +768,144 @@ class AccountMove(models.Model):
                 payments_widget_vals['title'] = _('Outstanding debits')
 
             for line in self.env['account.move.line'].search(domain):
+                # Odoo 18: payment_id on move.line may be empty; use move's payment_ids as fallback
+                payment = line.payment_id
+                if not payment:
+                    payment = line.move_id.payment_ids[:1] if line.move_id.payment_ids else payment
+                
+                currency_dif = move.currency_id_dif_resolved
+                
                 if line.debit == 0 and line.credit == 0 and not line.full_reconcile_id:
                     if abs(line.amount_residual_usd) > 0:
+                        journal_name = (payment.name if payment else False) or line.ref or line.move_id.name
+                        if journal_name:
+                            journal_name = journal_name.replace("Retención", "Ret.").replace("Retencion", "Ret.")
+                            parts = journal_name.split()
+                            for idx, part in enumerate(parts):
+                                if part.isdigit() and len(part) > 8:
+                                    parts[idx] = f"*{part[-5:]}"
+                            journal_name = " ".join(parts)
+                        
+                        if currency_dif:
+                            amount_sec = line.company_currency_id._convert(
+                                abs(line.amount_residual),
+                                currency_dif,
+                                move.company_id,
+                                line.date or fields.Date.context_today(self),
+                            )
+                            formatted_val = formatLang(self.env, amount_sec, currency_obj=currency_dif)
+                            amount_formatted = formatLang(self.env, 0.0, currency_obj=move.currency_id)
+                            journal_name = f"{journal_name} ({amount_formatted} / {formatted_val})"
+                        
+                        amount_formatted = formatLang(self.env, 0.0, currency_obj=move.currency_id)
+                        amount_usd_formatted = formatLang(self.env, abs(line.amount_residual_usd), currency_obj=currency_dif) if currency_dif else False
+                        
                         payments_widget_vals['content'].append({
-                            'journal_name': line.ref or line.move_id.name,
+                            'journal_name': journal_name,
                             'amount': 0,
+                            'amount_formatted': amount_formatted,
                             'amount_usd': abs(line.amount_residual_usd),
+                            'amount_usd_formatted': amount_usd_formatted,
                             'currency_id': move.currency_id.id,
-                            'currency_id_dif': move.currency_id_dif.id,
+                            'currency_id_dif': currency_dif.id if currency_dif else False,
                             'id': line.id,
                             'move_id': line.move_id.id,
                             'date': fields.Date.to_string(line.date),
-                            'account_payment_id': line.payment_id.id,
+                            'account_payment_id': payment.id if payment else False,
                         })
                         continue
-                if line.currency_id == move.currency_id:
-                    # Same foreign currency.
+                # Safely check if the payment has a retention (field from l10n_ve_payment_extension)
+                is_retention = (
+                    bool(payment and getattr(payment, 'retention_id', False))
+                    or bool(getattr(line.move_id, 'is_retention', False))
+                )
+                # For retention moves without account.payment, check move ref pattern
+                if not is_retention and not payment:
+                    move_name = line.move_id.name or ''
+                    is_retention = bool(
+                        getattr(line.move_id, 'retention_islr_line_ids', False)
+                        or getattr(line.move_id, 'retention_iva_line_ids', False)
+                    )
+                if not is_retention:
+                    is_retention = 'ret' in (line.journal_id.code or '').lower() or 'ret' in (line.journal_id.name or '').lower()
+                
+                display_currency = currency_dif if (is_retention and currency_dif) else move.currency_id
+
+                is_company_usd = move.company_id.currency_id.name == 'USD'
+
+                if line.currency_id == display_currency:
+                    # Same currency.
                     amount = abs(line.amount_residual_currency)
-                    amount_usd = abs(line.amount_residual_usd)
+                    if is_company_usd and currency_dif and display_currency == currency_dif:
+                        amount_usd = abs(line.amount_residual)
+                    else:
+                        amount_usd = abs(line.amount_residual_usd)
                 else:
-                    # Different foreign currencies.
+                    # Different currencies.
                     amount = line.company_currency_id._convert(
                         abs(line.amount_residual),
-                        move.currency_id,
+                        display_currency,
                         move.company_id,
                         line.date,
                     )
-                    amount_usd = abs(line.amount_residual_usd)
+                    if is_company_usd and currency_dif and display_currency == currency_dif:
+                        amount_usd = abs(line.amount_residual)
+                    else:
+                        amount_usd = abs(line.amount_residual_usd)
 
-                if move.currency_id.is_zero(amount) and amount_usd == 0:
+                if display_currency.is_zero(amount):
                     continue
 
+                journal_name = (payment.name if payment else False) or line.ref or line.move_id.name
+                if journal_name:
+                    journal_name = journal_name.replace("Retención", "Ret.").replace("Retencion", "Ret.")
+                    parts = journal_name.split()
+                    for idx, part in enumerate(parts):
+                        if part.isdigit() and len(part) > 8:
+                            parts[idx] = f"*{part[-5:]}"
+                    journal_name = " ".join(parts)
+                
+                amount_formatted = formatLang(self.env, amount, currency_obj=display_currency)
+                amount_usd_formatted = False
+
+                if currency_dif:
+                    if display_currency == currency_dif:
+                        amount_primary = abs(line.amount_residual_currency) if line.currency_id == move.currency_id else line.company_currency_id._convert(
+                            abs(line.amount_residual),
+                            move.currency_id,
+                            move.company_id,
+                            line.date,
+                        )
+                        formatted_val = formatLang(self.env, amount_primary, currency_obj=move.currency_id)
+                        journal_name = f"{journal_name} ({formatted_val} / {amount_formatted})"
+                        amount_usd_formatted = formatted_val
+                    else:
+                        amount_sec = line.company_currency_id._convert(
+                            abs(line.amount_residual),
+                            currency_dif,
+                            move.company_id,
+                            line.date or fields.Date.context_today(self),
+                        )
+                        formatted_val = formatLang(self.env, amount_sec, currency_obj=currency_dif)
+                        journal_name = f"{journal_name} ({amount_formatted} / {formatted_val})"
+                        amount_usd_formatted = formatted_val
+
                 payments_widget_vals['content'].append({
-                    'journal_name': line.ref or line.move_id.name,
+                    'journal_name': journal_name,
                     'amount': amount,
+                    'amount_formatted': amount_formatted,
                     'amount_usd': amount_usd,
-                    'currency_id': move.currency_id.id,
-                    'currency_id_dif': move.currency_id_dif.id,
+                    'amount_usd_formatted': amount_usd_formatted,
+                    'currency_id': display_currency.id,
+                    'currency_id_dif': currency_dif.id if currency_dif else False,
                     'id': line.id,
                     'move_id': line.move_id.id,
                     'date': fields.Date.to_string(line.date),
-                    'account_payment_id': line.payment_id.id,
+                    'account_payment_id': payment.id if payment else False,
                 })
 
             if not payments_widget_vals['content']:
                 continue
-            ##
             move.invoice_outstanding_credits_debits_widget = payments_widget_vals
             move.invoice_has_outstanding = True
 
@@ -748,15 +915,9 @@ class AccountMove(models.Model):
         asset_id = vals.get('asset_id')
         move_vals['tax_today'] = asset_id.tax_today
         move_vals['currency_id_dif'] = asset_id.currency_id_dif.id
-        #move_vals['asset_remaining_value_ref'] = move_vals['asset_remaining_value'] / asset_id.tax_today
-        #move_vals['asset_depreciated_value_ref'] = move_vals['asset_depreciated_value'] / asset_id.tax_today
         return move_vals
 
     def js_remove_outstanding_partial(self, partial_id):
-        ''' Called by the 'payment' widget to remove a reconciled entry to the present invoice.
-
-        :param partial_id: The id of an existing partial reconciled with the current invoice.
-        '''
         self.ensure_one()
         partial = self.env['account.partial.reconcile'].browse(partial_id)
         debit_move_id = partial.debit_move_id
@@ -786,61 +947,6 @@ class AccountMove(models.Model):
                         },
                     }
 
-    def crear_asiento_diferencia(self):
-        #verifica que todas las facturas sean de un mismo cliente o proveedor
-        if self:
-            partner_ids = self.mapped('partner_id')
-            if len(partner_ids) > 1:
-                raise UserError('No se puede crear un asiento de diferencia para facturas de diferentes clientes o proveedores')
-            print('partner_ids', partner_ids)
-        fac_clientes = self.filtered(lambda x: x.move_type in ('out_invoice'))
-        total_diferencia_cliente = sum(fac_clientes.filtered(lambda x: x.amount_residual_usd == 0 and x.amount_residual != 0).mapped('amount_residual'))
-        partner_id = self.mapped('partner_id')
-        if total_diferencia_cliente > 0:
-            journal_id = self.env.company.currency_exchange_journal_id
-            company_id = self.env.company
-            if journal_id:
-                move = self.env['account.move'].create({
-                    'journal_id': journal_id.id,
-                    'company_id': company_id.id,
-                    'move_type': 'entry',
-                    'date': fields.Date.today(),
-                    'tax_today': 0,
-                    'ref': 'Diferencia en tasa de cambio',
-                })
-                # crea la linea de diferencia
-                line_ids = [
-                        (0, 0, {
-                            'name': 'Diferencia en tasa de cambio',
-                            'partner_id': partner_id.id,
-                            'account_id': partner_id.property_account_receivable_id.id,
-                            'credit': total_diferencia_cliente,
-                            'credit_usd': 0,
-                            'amount_currency': -total_diferencia_cliente,
-                        }),
-                        (0, 0, {
-                            'name': 'Diferencia en tasa de cambio',
-                            'account_id': company_id.expense_currency_exchange_account_id.id,
-                            'debit': total_diferencia_cliente,
-                            'debit_usd': 0,
-                            'amount_currency': total_diferencia_cliente,
-                        }),
-                    ]
-                move.write({'line_ids': line_ids})
-                print('move', move)
-
-                print('move.line_ids', move.line_ids)
-                move._post()
-                # busca la linea en move con cuenta contable de property_account_receivable_id
-                line = move.line_ids.filtered(lambda x: x.account_id == partner_id.property_account_receivable_id)
-                print('line', line)
-                # crea la reconciliacion
-                lines_facturas = fac_clientes.line_ids.filtered(lambda x: x.account_id == partner_id.property_account_receivable_id)
-                print('lines_facturas', lines_facturas)
-                (lines_facturas + line).reconcile()
-
-                return move
-
     def action_force_recompute_usd_totals(self):
         for move in self:
             move._onchange_tax_today()
@@ -862,3 +968,166 @@ class AccountMove(models.Model):
             }
         }
 
+    def crear_asiento_diferencia(self):
+        if self:
+            partner_ids = self.mapped('partner_id')
+            if len(partner_ids) > 1:
+                raise UserError('No se puede crear un asiento de diferencia para facturas de diferentes clientes o proveedores')
+        fac_clientes = self.filtered(lambda x: x.move_type in ('out_invoice'))
+        total_diferencia_cliente = sum(fac_clientes.filtered(lambda x: x.amount_residual_usd == 0 and x.amount_residual != 0).mapped('amount_residual'))
+        partner_id = self.mapped('partner_id')
+        if total_diferencia_cliente > 0:
+            journal_id = self.env.company.currency_exchange_journal_id
+            company_id = self.env.company
+            if journal_id:
+                move = self.env['account.move'].create({
+                    'journal_id': journal_id.id,
+                    'company_id': company_id.id,
+                    'move_type': 'entry',
+                    'date': fields.Date.today(),
+                    'tax_today': 0,
+                    'ref': 'Diferencia en tasa de cambio',
+                })
+                line_ids = [
+                        (0, 0, {
+                            'name': 'Diferencia en tasa de cambio',
+                            'partner_id': partner_id.id,
+                            'account_id': partner_id.property_account_receivable_id.id,
+                            'credit': total_diferencia_cliente,
+                            'credit_usd': 0,
+                            'amount_currency': -total_diferencia_cliente,
+                        }),
+                        (0, 0, {
+                            'name': 'Diferencia en tasa de cambio',
+                            'account_id': company_id.expense_currency_exchange_account_id.id,
+                            'debit': total_diferencia_cliente,
+                            'debit_usd': 0,
+                            'amount_currency': total_diferencia_cliente,
+                        }),
+                    ]
+                move.write({'line_ids': line_ids})
+                move._post()
+                line = move.line_ids.filtered(lambda x: x.account_id == partner_id.property_account_receivable_id)
+                lines_facturas = fac_clientes.line_ids.filtered(lambda x: x.account_id == partner_id.property_account_receivable_id)
+                (lines_facturas + line).reconcile()
+
+                return move
+
+    def write(self, vals):
+        # Si cambia la fecha y no hay tasa manual ni tasa explícita, recalcular tax_today
+        new_date = vals.get('invoice_date') or vals.get('date')
+        if new_date:
+            for rec in self:
+                if rec.tax_today_edited or getattr(rec, 'manually_set_rate', False):
+                    continue
+                currency_dif = rec.company_id.currency_id_dif
+                if not currency_dif:
+                    continue
+                # Si la moneda de la factura es la misma que la moneda de referencia, tasa = 1
+                move_currency = vals.get('currency_id') or rec.currency_id.id
+                if move_currency and move_currency == currency_dif.id:
+                    vals['tax_today'] = 1.0
+                    break
+                try:
+                    rate_ids = currency_dif._get_rates(rec.company_id, new_date)
+                except Exception:
+                    rate_ids = {}
+                if rate_ids and currency_dif.id in rate_ids and rate_ids[currency_dif.id] > 0:
+                    db_rate = rate_ids[currency_dif.id]
+                else:
+                    db_rate = currency_dif.inverse_rate or 0.0
+                
+                if 0.0 < db_rate < 1.0:
+                    new_rate = 1.0 / db_rate
+                else:
+                    new_rate = db_rate
+                
+                if new_rate > 0:
+                    vals['tax_today'] = new_rate
+                break  # Aplicar solo una vez (todos los records del recordset comparten los mismos vals)
+
+        # Sincronizar tasas en el diccionario de valores antes de escribir
+        tax_today = vals.get('tax_today')
+        foreign_rate = vals.get('foreign_rate')
+        foreign_inverse_rate = vals.get('foreign_inverse_rate')
+
+        if tax_today is not None and tax_today > 0:
+            vals['foreign_rate'] = tax_today
+            if self.env.company.currency_id.name == 'USD':
+                vals['foreign_inverse_rate'] = tax_today
+            else:
+                vals['foreign_inverse_rate'] = 1.0 / tax_today
+        elif foreign_rate is not None and foreign_rate > 0:
+            vals['tax_today'] = foreign_rate
+            if self.env.company.currency_id.name == 'USD':
+                vals['foreign_inverse_rate'] = foreign_rate
+            else:
+                vals['foreign_inverse_rate'] = 1.0 / foreign_rate
+        elif foreign_inverse_rate is not None and foreign_inverse_rate > 0:
+            if self.env.company.currency_id.name == 'USD':
+                vals['tax_today'] = foreign_inverse_rate
+                vals['foreign_rate'] = foreign_inverse_rate
+            else:
+                vals['tax_today'] = 1.0 / foreign_inverse_rate
+                vals['foreign_rate'] = 1.0 / foreign_inverse_rate
+
+        return super(AccountMove, self).write(vals)
+
+    @api.onchange('invoice_date', 'date')
+    def _onchange_invoice_date_or_date(self):
+        for rec in self:
+            if rec.company_id.currency_id_dif and not rec.tax_today_edited and not getattr(rec, 'manually_set_rate', False):
+                date_to_use = rec.invoice_date or rec.date or fields.Date.context_today(rec)
+                try:
+                    new_rate_ids = rec.company_id.currency_id_dif._get_rates(rec.company_id, date_to_use)
+                except Exception:
+                    new_rate_ids = {}
+                if new_rate_ids and rec.company_id.currency_id_dif.id in new_rate_ids and new_rate_ids[rec.company_id.currency_id_dif.id] > 0:
+                    db_rate = new_rate_ids[rec.company_id.currency_id_dif.id]
+                else:
+                    db_rate = rec.company_id.currency_id_dif.inverse_rate or 0.0
+                
+                if 0.0 < db_rate < 1.0:
+                    new_rate = 1.0 / db_rate
+                else:
+                    new_rate = db_rate
+
+                if new_rate > 0:
+                    rec.tax_today = new_rate
+                    rec.foreign_rate = new_rate
+                    if rec.company_id.currency_id.name == 'USD':
+                        rec.foreign_inverse_rate = new_rate
+                    else:
+                        rec.foreign_inverse_rate = 1.0 / new_rate
+                    rec._onchange_tax_today()
+
+    @api.onchange('tax_today')
+    def _onchange_tax_today_sync_ve(self):
+        for rec in self:
+            if rec.tax_today > 0:
+                rec.foreign_rate = rec.tax_today
+                if rec.company_id.currency_id.name == 'USD':
+                    rec.foreign_inverse_rate = rec.tax_today
+                else:
+                    rec.foreign_inverse_rate = 1.0 / rec.tax_today
+
+    @api.onchange('foreign_rate')
+    def _onchange_foreign_rate_sync_ve(self):
+        for rec in self:
+            if rec.foreign_rate > 0:
+                rec.tax_today = rec.foreign_rate
+                if rec.company_id.currency_id.name == 'USD':
+                    rec.foreign_inverse_rate = rec.foreign_rate
+                else:
+                    rec.foreign_inverse_rate = 1.0 / rec.foreign_rate
+
+    @api.onchange('foreign_inverse_rate')
+    def _onchange_foreign_inverse_rate_sync_ve(self):
+        for rec in self:
+            if rec.foreign_inverse_rate > 0:
+                if rec.company_id.currency_id.name == 'USD':
+                    rec.tax_today = rec.foreign_inverse_rate
+                    rec.foreign_rate = rec.foreign_inverse_rate
+                else:
+                    rec.tax_today = 1.0 / rec.foreign_inverse_rate
+                    rec.foreign_rate = 1.0 / rec.foreign_inverse_rate

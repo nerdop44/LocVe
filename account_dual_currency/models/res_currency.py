@@ -80,9 +80,8 @@ class ResCurrency(models.Model):
 
     def _compute_can_edit_rates(self):
         is_manager = self.env.user.has_group('account.group_account_manager')
-        is_no_one = self.env.user.has_group('base.group_no_one')
         for rec in self:
-            rec.can_edit_rates = is_manager and is_no_one
+            rec.can_edit_rates = is_manager
 
     def _convert(self, from_amount, to_currency, company=None, date=None, round=True, custom_rate=0.0):
         self, to_currency = self or to_currency, to_currency or self

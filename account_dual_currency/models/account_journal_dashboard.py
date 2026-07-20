@@ -75,7 +75,34 @@ class account_journal(models.Model):
                 'sum_draft_usd': currency_id_dif.format(draft_usd_map.get(journal.id, 0.0)),
                 'sum_waiting_usd': currency_id_dif.format(waiting_usd_map.get(journal.id, 0.0)),
                 'sum_late_usd': currency_id_dif.format(late_usd_map.get(journal.id, 0.0)),
+                'number_to_invoice_orders': 0,
+                'sum_to_invoice_orders': '',
             })
+            if journal.type == 'sale' and 'sale.order' in self.env:
+                to_invoice_orders = self.env['sale.order'].sudo().search([
+                    ('invoice_status', '=', 'to invoice'),
+                    ('company_id', '=', journal.company_id.id)
+                ])
+                count = len(to_invoice_orders)
+                amount = sum(to_invoice_orders.mapped('amount_untaxed'))
+                formatted_amount = journal.company_id.currency_id.format(amount)
+                dashboard_data[journal.id].update({
+                    'number_to_invoice_orders': count,
+                    'sum_to_invoice_orders': formatted_amount,
+                })
+
+    def action_view_to_invoice_orders(self):
+        self.ensure_one()
+        return {
+            'name': _('Pedidos por Facturar'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'sale.order',
+            'view_mode': 'tree,form',
+            'domain': [('invoice_status', '=', 'to invoice'), ('company_id', '=', self.company_id.id)],
+            'context': {'create': False},
+            'target': 'current',
+        }
+
 
     # def _fill_sale_purchase_dashboard_data(self, dashboard_data):
     #     """Populate all sale and purchase journal's data dict with relevant information for the kanban card."""

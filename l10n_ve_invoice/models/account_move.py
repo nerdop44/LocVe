@@ -365,3 +365,80 @@ class AccountMove(models.Model):
             }
         }
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if 'correlative' in vals and vals['correlative']:
+                vals['correlative'] = self._format_control_number(vals['correlative'])
+        return super(AccountMove, self).create(vals_list)
+
+    def write(self, vals):
+        if 'correlative' in vals and vals['correlative']:
+            vals['correlative'] = self._format_control_number(vals['correlative'])
+        return super(AccountMove, self).write(vals)
+
+    def _format_control_number(self, val):
+        if not val:
+            return val
+        # Limpiar cualquier caracter que no sea dígito
+        digits = ''.join(c for c in val if c.isdigit())
+        if not digits:
+            return val
+        # Rellenar con ceros a la izquierda hasta 8 dígitos y anteponer '00-'
+        return f"00-{digits[-8:].zfill(8)}"
+
+    @api.constrains('reversed_entry_id', 'state')
+    def _check_invoice_not_fully_refunded(self):
+        for move in self:
+            if move.move_type in ('out_refund', 'in_refund') and move.state == 'posted' and move.reversed_entry_id:
+                invoice = move.reversed_entry_id
+                # Buscar todas las notas de crédito publicadas para esta factura
+                refunds = self.search([
+                    ('reversed_entry_id', '=', invoice.id),
+                    ('state', '=', 'posted'),
+                    ('move_type', '=', move.move_type)
+                ])
+                total_refunded = sum(refunds.mapped('amount_total'))
+                if total_refunded > invoice.amount_total + 0.01:
+                    raise ValidationError(_("La factura '%s' ya ha sido totalmente afectada por otra(s) Nota(s) de Crédito. No es posible emitir reembolsos que excedan el monto total de la factura original.") % invoice.name)
+
+    @api.constrains('invoice_line_ids', 'reversed_entry_id', 'state')
+    def _check_credit_note_lines(self):
+        for move in self:
+            if move.move_type in ('out_refund', 'in_refund') and move.reversed_entry_id and move.state == 'posted':
+                invoice = move.reversed_entry_id
+                
+                # Mapear cantidades facturadas por producto
+                original_qty = {}
+                for line in invoice.invoice_line_ids:
+                    if not line.display_type and line.product_id:
+                        original_qty[line.product_id.id] = original_qty.get(line.product_id.id, 0.0) + line.quantity
+                
+                # Buscar cantidades ya reembolsadas en notas de crédito publicadas
+                other_refunds = self.search([
+                    ('reversed_entry_id', '=', invoice.id),
+                    ('state', '=', 'posted'),
+                    ('move_type', '=', move.move_type)
+                ])
+                
+                refund_qty = {}
+                for r in other_refunds:
+                    for line in r.invoice_line_ids:
+                        if not line.display_type and line.product_id:
+                            prod_id = line.product_id.id
+                            refund_qty[prod_id] = refund_qty.get(prod_id, 0.0) + line.quantity
+                
+                # Validar cada línea de la nota de crédito actual
+                for line in move.invoice_line_ids:
+                    if not line.display_type and line.product_id:
+                        prod_id = line.product_id.id
+                        if prod_id not in original_qty:
+                            raise ValidationError(_("No se permite agregar el producto '%s' a la Nota de Crédito, ya que no forma parte de la factura original.") % line.product_id.name)
+                        
+                        total_ref_qty = refund_qty.get(prod_id, 0.0)
+                        if total_ref_qty > original_qty[prod_id] + 0.0001:
+                            raise ValidationError(_("La cantidad total reembolsada del producto '%s' (%s) excede la cantidad facturada originalmente (%s).") % (
+                                line.product_id.name, total_ref_qty, original_qty[prod_id]
+                            ))
+
+

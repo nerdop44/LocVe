@@ -1,4 +1,5 @@
-from odoo import api, fields, models
+from odoo import api, fields, models, _
+from odoo.exceptions import ValidationError
 
 
 class PurchaseOrderLine(models.Model):
@@ -39,3 +40,17 @@ class PurchaseOrderLine(models.Model):
             else:
                 line.price_unit_dif = 0.0
                 line.price_subtotal_dif = 0.0
+
+    @api.constrains('price_unit')
+    def _check_price_unit_positive(self):
+        for line in self:
+            if not line.display_type:
+                if line.price_unit <= 0.0:
+                    raise ValidationError(_("El precio unitario del producto '%s' debe ser mayor a cero.") % line.product_id.name)
+
+    @api.constrains('taxes_id')
+    def _check_single_tax(self):
+        for line in self:
+            if not line.display_type and len(line.taxes_id) > 1:
+                raise ValidationError(_("No se permite aplicar más de una alícuota de impuesto al producto '%s'.") % line.product_id.name)
+
