@@ -118,7 +118,7 @@
             <field name="model">account.journal</field>
             <field name="inherit_id" ref="account.account_journal_dashboard_kanban_view"/>
             <field name="arch" type="xml">
-                <xpath expr="//div[contains(@class, 'o_kanban_primary_right')]" position="inside">
+                <xpath expr="//div[@name='kanban_primary_right']" position="inside">
                     <t t-if="record.type.raw_value == 'sale' and dashboard.number_to_invoice_orders">
                         <div class="row text-warning" style="font-weight: bold; margin-top: 5px;">
                             <div class="col-8">
