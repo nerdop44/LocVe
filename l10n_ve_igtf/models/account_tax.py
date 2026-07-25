@@ -75,7 +75,17 @@ class AccountTax(models.Model):
              #elif type_model == "sale.order.line":                
                 order = base_line["record"].order_id
 
-        foreign_currency = self.env.company.currency_foreign_id
+        company = self.env.company
+        is_sale = False
+        if type_model == "account.move.line" and invoice:
+            company = invoice.company_id or company
+            if invoice.move_type in ['out_invoice', 'out_refund']:
+                is_sale = True
+        elif type_model == "sale.order.line" and order:
+            company = order.company_id or company
+            is_sale = True
+
+        foreign_currency = company.currency_foreign_id
         rate = 0
 
         if type_model == "account.move.line":
@@ -85,21 +95,26 @@ class AccountTax(models.Model):
             rate = order.foreign_inverse_rate
 
         float_igtf_percentage = (
-            self.env.company.igtf_percentage if not invoice.is_two_percentage else 2
+            company.igtf_percentage if (invoice and not invoice.is_two_percentage) else 2
         )
         igtf_percentage = (float_igtf_percentage or 0) / 100
 
-        if type_model == "account.move.line" and self.env.company.show_igtf_suggested_account_move:
+        if type_model == "account.move.line" and company.show_igtf_suggested_account_move:
             is_igtf_suggested = True
             base_igtf = res.get("amount_total", 0)
             foreign_base_igtf = res.get("foreign_amount_total", 0)
-        # elif type_model == "sale.order.line" and self.env.company.show_igtf_suggested_sale_order:
-        if type_model == "sale.order.line" and self.env.company.show_igtf_suggested_sale_order:
+        # elif type_model == "sale.order.line" and company.show_igtf_suggested_sale_order:
+        if type_model == "sale.order.line" and company.show_igtf_suggested_sale_order:
             is_igtf_suggested = True
             base_igtf = res.get("amount_total", 0)
             foreign_base_igtf = res.get("foreign_amount_total", 0)
 
-        if invoice.bi_igtf:
+        if is_sale and company.taxpayer_type != 'special':
+            is_igtf_suggested = False
+            base_igtf = 0
+            foreign_base_igtf = 0
+
+        if invoice and invoice.bi_igtf:
             is_igtf_suggested = False
             base_igtf = invoice.bi_igtf
             foreign_base_igtf = invoice.bi_igtf * rate

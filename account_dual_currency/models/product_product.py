@@ -154,8 +154,19 @@ class ProductProduct(models.Model):
         for candidate in candidates:
             qty_taken_on_candidate = min(qty_to_take_on_candidates, candidate.remaining_qty)
 
-            candidate_unit_cost = candidate.remaining_value / candidate.remaining_qty
-            candidate_unit_cost_usd = candidate.remaining_value_usd / candidate.remaining_qty
+            if float_is_zero(candidate.remaining_qty, precision_rounding=self.uom_id.rounding):
+                candidate_unit_cost = candidate.unit_cost
+                candidate_unit_cost_usd = candidate.unit_cost_usd
+            else:
+                candidate_unit_cost = candidate.remaining_value / candidate.remaining_qty
+                
+                # Fallback de tasa dual si remaining_value_usd es cero
+                tasa = self.env.company.currency_id_dif
+                remaining_val_usd = candidate.remaining_value_usd
+                if float_is_zero(remaining_val_usd, precision_digits=6) and candidate.remaining_value and tasa and tasa.inverse_rate:
+                    remaining_val_usd = candidate.remaining_value / tasa.inverse_rate
+                candidate_unit_cost_usd = remaining_val_usd / candidate.remaining_qty
+
             new_standard_price = candidate_unit_cost
             new_standard_price_usd = candidate_unit_cost_usd
             value_taken_on_candidate = qty_taken_on_candidate * candidate_unit_cost

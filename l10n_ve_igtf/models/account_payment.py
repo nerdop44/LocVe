@@ -85,20 +85,15 @@ class AccountPaymentIgtf(models.Model):
                     payment.igtf_amount = payment_amount * (payment.igtf_percentage / 100)
 
     def _prepare_move_line_default_vals(
-        self, write_off_line_vals=None, **kwargs
+        self, write_off_line_vals=None, force_balance=None, **kwargs
     ):
         """Prepare values to create a new account.move.line for a payment.
         this method adds the igtf in the move line values to be created depending on the payment type
-
-        Args:
-            write_off_line_vals (dict, optional): Values to create the write-off account.move.line. Defaults to None.
-
-        Returns:
-            dict: Values to create the account.move.line.
         """
-
         vals = super(AccountPaymentIgtf, self)._prepare_move_line_default_vals(
-            write_off_line_vals=write_off_line_vals, **kwargs
+            write_off_line_vals=write_off_line_vals,
+            force_balance=force_balance,
+            **kwargs
         )
 
         if self.igtf_percentage == self.env.company.igtf_percentage:
@@ -106,6 +101,31 @@ class AccountPaymentIgtf(models.Model):
 
         if self.igtf_percentage == 2:
             self._create_igtf_move_supplier_two_percentage()
+
+        # Pachacutec: Odoo 18 COMPATIBILITY ENFORCEMENT for ALL lines in vals to ensure final balance
+        if vals:
+            total_balance = 0.0
+            for v in vals:
+                v['debit'] = v.get('debit', 0.0)
+                v['credit'] = v.get('credit', 0.0)
+                v['balance'] = v['debit'] - v['credit']
+                total_balance += v['balance']
+                
+            # If there's a small rounding error in the final balance after IGTF calculation,
+            # we absorb it into the liquidity line (vals[0]).
+            from odoo.tools import float_is_zero, float_round
+            # Odoo 18 sometimes expects exact 0 balance, so we must round everything
+            currency = self.currency_id or self.company_id.currency_id
+            total_balance = float_round(total_balance, precision_digits=currency.decimal_places or 2)
+            
+            if not float_is_zero(total_balance, precision_digits=currency.decimal_places or 2):
+                vals[0]['balance'] -= total_balance
+                if vals[0]['balance'] >= 0:
+                    vals[0]['debit'] = vals[0]['balance']
+                    vals[0]['credit'] = 0.0
+                else:
+                    vals[0]['debit'] = 0.0
+                    vals[0]['credit'] = -vals[0]['balance']
 
         return vals
 
@@ -220,6 +240,13 @@ class AccountPaymentIgtf(models.Model):
         igtf_account_two_percentage = self.env.company.igtf_two_percentage_account.id
         igtf_amount = self.igtf_amount
 
+        # Calculate debit, credit and balance for Odoo 18
+        credit_amount = igtf_amount
+        if self.env.company.currency_id.id == self.env.ref("base.VEF").id:
+            from odoo.tools import float_round
+            # The rate should mirror what happens in _prepare_inbound_move_line_igtf_vals where rate is self.foreign_rate
+            credit_amount = float_round(igtf_amount * self.foreign_rate, precision_digits=2)
+
         vals.append(
             {
                 "name": "IGTF",
@@ -231,6 +258,9 @@ class AccountPaymentIgtf(models.Model):
                     else igtf_account_two_percentage
                 ),
                 "partner_id": self.partner_id.id,
+                "debit": 0.0,
+                "credit": credit_amount,
+                "balance": -credit_amount,
             }
         )
         return vals
@@ -254,6 +284,12 @@ class AccountPaymentIgtf(models.Model):
         igtf_account_two_percentage = self.env.company.igtf_two_percentage_account.id
         igtf_amount = self.igtf_amount
 
+        # Calculate debit, credit and balance for Odoo 18
+        debit_amount = igtf_amount
+        if self.env.company.currency_id.id == self.env.ref("base.VEF").id:
+            from odoo.tools import float_round
+            debit_amount = float_round(igtf_amount * self.foreign_rate, precision_digits=2)
+
         vals.append(
             {
                 "name": "IGTF",
@@ -265,6 +301,9 @@ class AccountPaymentIgtf(models.Model):
                     else igtf_account_two_percentage
                 ),
                 "partner_id": self.partner_id.id,
+                "debit": debit_amount,
+                "credit": 0.0,
+                "balance": debit_amount,
             }
         )
 
@@ -286,7 +325,11 @@ class AccountPaymentIgtf(models.Model):
             credit_amount = -credit_line
             if self.env.company.currency_id.id == self.env.ref("base.VEF").id:
                 credit_amount = -credit_line * self.foreign_rate
-            vals[1].update({"amount_currency": credit_line, "credit": credit_amount})
+            vals[1].update({
+                "amount_currency": credit_line,
+                "credit": credit_amount,
+                "balance": vals[1].get("debit", 0.0) - abs(credit_amount)
+            })
 
             self._create_inbound_move_line_igtf_vals(vals)
 
@@ -305,7 +348,11 @@ class AccountPaymentIgtf(models.Model):
             debit_amount = debit_line
             if self.env.company.currency_id.id == self.env.ref("base.VEF").id:
                 debit_amount = debit_line * self.foreign_rate
-            vals[1].update({"amount_currency": debit_line, "debit": debit_amount})
+            vals[1].update({
+                "amount_currency": debit_line,
+                "debit": debit_amount,
+                "balance": abs(debit_amount) - vals[1].get("credit", 0.0)
+            })
 
             self._create_outbound_move_line_igtf_vals(vals)
 

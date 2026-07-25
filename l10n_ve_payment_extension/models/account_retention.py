@@ -572,10 +572,10 @@ class AccountRetention(models.Model):
 
     def _safe_create_payments(self):
         """
-        Crea o actualiza los pagos en borrador para retenciones IVA e ISLR.
+        Crea o actualiza los pagos en borrador para retenciones IVA, ISLR y Municipales.
         Para IVA: sincroniza el pago por factura (igual que ISLR).
         Para ISLR: sincroniza por concepto+factura via _create_islr_payments_on_draft.
-        Para Municipal: no crea pagos automáticos.
+        Para Municipal: sincroniza por factura via _sync_municipal_payments_on_draft.
         """
         for retention in self:
             journals = {
@@ -588,10 +588,6 @@ class AccountRetention(models.Model):
             }
             journal = journals.get((retention.type_retention, retention.type))
             if not journal:
-                continue
-
-            # El municipal no crea pagos automáticos
-            if retention.type_retention == "municipal":
                 continue
 
             # Las retenciones contabilizadas no deben recrear pagos
@@ -610,6 +606,112 @@ class AccountRetention(models.Model):
             # LÓGICA IVA: sincronizar un pago por cada factura agrupada
             if retention.type_retention == "iva":
                 retention._sync_iva_payments_on_draft()
+                continue
+
+            # LÓGICA MUNICIPAL: sincronizar un pago por factura
+            if retention.type_retention == "municipal":
+                retention._sync_municipal_payments_on_draft()
+                continue
+
+    def _sync_municipal_payments_on_draft(self):
+        """
+        Sincroniza los pagos municipales en borrador.
+        Agrupa las líneas de retención por factura y crea/actualiza un pago por grupo.
+        """
+        self.ensure_one()
+        Payment = self.env["account.payment"]
+        Rate = self.env["res.currency.rate"]
+
+        journal = (
+            self.env.company.municipal_supplier_retention_journal_id
+            if self.type == "in_invoice"
+            else self.env.company.municipal_customer_retention_journal_id
+        )
+        if not journal:
+            return
+
+        # Odoo 18 requiere payment_method_line_id
+        payment_method_line = journal.outbound_payment_method_line_ids[:1] if self.type == "in_invoice" else journal.inbound_payment_method_line_ids[:1]
+        if not payment_method_line:
+             payment_method_line = journal._get_available_payment_method_lines(
+                 "outbound" if self.type == "in_invoice" else "inbound"
+             )[:1]
+
+        partner_type = "supplier" if self.type in ("in_invoice", "in_refund") else "customer"
+
+        # Agrupar líneas por factura
+        lines_by_move = defaultdict(lambda: self.env["account.retention.line"])
+        for line in self.retention_line_ids:
+            if line.move_id:
+                lines_by_move[line.move_id] += line
+
+        existing_payments = {}
+        for payment in self.payment_ids:
+            linked_moves = payment.retention_line_ids.mapped("move_id")
+            for move in linked_moves:
+                existing_payments[move] = payment
+
+        payments_to_keep = self.env["account.payment"]
+
+        for move, lines in lines_by_move.items():
+            if move.move_type in ("in_invoice", "out_refund"):
+                payment_type = "outbound"
+            else:
+                payment_type = "inbound"
+
+            if move.move_type in ("in_refund", "out_refund"):
+                payment_type = "inbound" if partner_type == "supplier" else "outbound"
+
+            _, _, currency_vef, _ = self._get_retention_currencies()
+            total_retention_vef = sum(lines.mapped("foreign_retention_amount"))
+            foreign_rate = lines[0].foreign_currency_rate if lines else 1.0
+
+            if currency_vef.is_zero(total_retention_vef):
+                continue
+
+            pm_account_id = payment_method_line.payment_account_id.id if payment_method_line and hasattr(payment_method_line, 'payment_account_id') else False
+            outstanding_account_id = pm_account_id or journal.default_account_id.id
+
+            payment_vals = {
+                "retention_id": self.id,
+                "partner_id": self.partner_id.id,
+                "partner_type": partner_type,
+                "payment_type_retention": "municipal",
+                "is_retention": True,
+                "journal_id": journal.id,
+                "payment_type": payment_type,
+                "payment_method_line_id": payment_method_line.id if payment_method_line else False,
+                "outstanding_account_id": outstanding_account_id,
+                "foreign_rate": foreign_rate,
+                "currency_id": currency_vef.id,
+                "amount": total_retention_vef,
+                "date": self.date_accounting or fields.Date.context_today(self),
+                "retention_line_ids": [(6, 0, lines.ids)],
+            }
+
+            payment = existing_payments.get(move)
+            if payment and payment.state == "draft":
+                payment.write(payment_vals)
+            elif not payment:
+                payment = Payment.create(payment_vals)
+                if hasattr(payment, 'foreign_inverse_rate'):
+                    payment.write({
+                        "foreign_inverse_rate": Rate.compute_inverse_rate(payment.foreign_rate)
+                    })
+            else:
+                payments_to_keep |= payment
+                continue
+
+            lines.write({"payment_id": payment.id})
+            payments_to_keep |= payment
+
+        payments_to_remove = self.payment_ids.filtered(
+            lambda p: p not in payments_to_keep and p.state == "draft"
+        )
+        if payments_to_remove:
+            payments_to_remove.unlink()
+
+        return payments_to_keep
 
     def _sync_iva_payments_on_draft(self):
         """
@@ -880,6 +982,44 @@ class AccountRetention(models.Model):
 
     def action_draft(self):
         self.write({"state": "draft"})
+
+    def action_reset_retention(self):
+        if not self.env.user.has_group('base.group_system'):
+            raise UserError(_("Only system administrators can reset retention vouchers."))
+        for record in self:
+            payments = record.payment_ids
+            lines = record.retention_line_ids
+
+            if payments:
+                payments.mapped("move_id.line_ids").remove_move_reconcile()
+                payments.action_draft()
+                payments.action_cancel()
+
+            for line in lines:
+                if line.move_id:
+                    line.move_id.write({
+                        "iva_voucher_number": False,
+                        "islr_voucher_number": False,
+                        "municipal_voucher_number": False,
+                    })
+
+            # Desasociar líneas de los pagos en BD
+            if lines:
+                lines.write({"payment_id": False})
+
+            # Invalidar caché contable
+            self.env.invalidate_all()
+
+            # Eliminar físicamente los pagos bypassando hooks
+            from odoo.models import BaseModel
+            if payments:
+                BaseModel.unlink(payments)
+
+            # Volver la retención a borrador
+            record.with_context(skip_safe_create_payments=True).write({
+                "original_lines_per_invoice_counter": False,
+                "state": "draft",
+            })
 
 #    # Bloque de código a AÑADIR (Es un método completamente nuevo)
 ## =============================================================
@@ -1682,10 +1822,14 @@ class AccountRetention(models.Model):
                         # La factura ya está en VEF/VES → usar montos del documento directamente
                         vef_invoice_amount = tax_group_data.get("base_amount_currency", tax_group_data.get("base_amount", 0.0))
                         vef_iva_amount = tax_group_data.get("tax_amount_currency", tax_group_data.get("tax_amount", 0.0))
-                        vef_invoice_total = tax_totals.get("total_amount_currency", tax_totals.get("total_amount", 0.0))
+                        vef_invoice_total = invoice_id.amount_total
                     elif global_vef_untaxed > 0:
                         # La factura está en otra moneda (ej. USD) y escalamos proporcionalmente los VEF globales
-                        total_invoice_untaxed = tax_totals.get("base_amount_currency", tax_totals.get("base_amount", 1.0)) or 1.0
+                        total_invoice_untaxed = sum(
+                            tg.get("base_amount", tg.get("base_amount_currency", 0.0))
+                            for sub in tax_totals.get("subtotals", [])
+                            for tg in sub.get("tax_groups", [])
+                        ) or 1.0
                         proportion = tax_group_data.get("base_amount_currency", 0.0) / total_invoice_untaxed if total_invoice_untaxed else 0.0
                         vef_invoice_amount = global_vef_untaxed * proportion
                         vef_iva_amount = (global_vef_total - global_vef_untaxed) * proportion
@@ -1694,7 +1838,7 @@ class AccountRetention(models.Model):
                         # Fallback
                         vef_invoice_amount = invoice_amount_company * used_rate
                         vef_iva_amount = iva_amount_company * used_rate
-                        vef_invoice_total = tax_totals.get("total_amount", 0.0) * used_rate
+                        vef_invoice_total = invoice_id.amount_total * used_rate
 
                     # Retención en VEF (siempre)
                     vef_retention_amount = float_round(
@@ -1708,7 +1852,11 @@ class AccountRetention(models.Model):
                         precision_digits=invoice_id.company_currency_id.decimal_places,
                     )
 
-                    invoice_total_company = tax_totals.get("total_amount", tax_totals.get("total_amount_currency", 0.0))
+                    invoice_total_company = sum(
+                        tg.get("base_amount", 0.0) + tg.get("tax_amount", 0.0)
+                        for sub in tax_totals.get("subtotals", [])
+                        for tg in sub.get("tax_groups", [])
+                    ) or invoice_id.amount_total
 
                     _logger.warning(
                         f"Retención calculada: "

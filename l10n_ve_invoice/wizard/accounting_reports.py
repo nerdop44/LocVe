@@ -73,7 +73,7 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
             "correlative": move.correlative,
             "reduced_aliquot": 0.08,
             "general_aliquot": 0.16,
-            "total_sales_iva": taxes.get("amount_taxed", 0),
+            "total_sales_iva": taxes.get("amount_untaxed", 0) + taxes.get("amount_taxed", 0),
             "total_sales_not_iva": taxes.get("tax_base_exempt_aliquot", 0) * multiplier,
             "amount_reduced_aliquot": taxes.get("amount_reduced_aliquot", 0) * multiplier,
             "amount_general_aliquot": taxes.get("amount_general_aliquot", 0) * multiplier,
@@ -92,7 +92,7 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
             "accounting_date": self._format_date(move.date),
             "vat": move.vat,
             "partner_name": move.invoice_partner_display_name,
-            "document_number": move.name,
+            "document_number": move.ref or move.name,
             "move_type": self._determinate_type(move.move_type),
             "transaction_type": self._determinate_transaction_type(move),
             "number_invoice_affected": move.reversed_entry_id.name or "--",
@@ -100,7 +100,7 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
             "reduced_aliquot": 0.08,
             "extend_aliquot": 0.31,
             "general_aliquot": 0.16,
-            "total_purchases_iva": taxes.get("amount_taxed", 0),
+            "total_purchases_iva": taxes.get("amount_untaxed", 0) + taxes.get("amount_taxed", 0),
             "total_purchases_not_iva": taxes.get("tax_base_exempt_aliquot", 0) * multiplier,
             "amount_reduced_aliquot": taxes.get("amount_reduced_aliquot", 0) * multiplier,
             "amount_general_aliquot": taxes.get("amount_general_aliquot", 0) * multiplier,
@@ -1101,7 +1101,7 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
         )
 
         name_columns = self.sale_book_fields()
-        total_idx = 0
+        total_idx = INIT_LINES
 
         for index, field in enumerate(name_columns):
             worksheet.set_column(index, index, len(field.get("name")) + 2)
@@ -1224,7 +1224,7 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
                 )
 
         name_columns = self.purchase_book_fields()
-        total_idx = 0
+        total_idx = INIT_LINES
 
         for index, field in enumerate(name_columns):
             worksheet.set_column(index, index, len(field.get("name")) + 2)

@@ -2,44 +2,65 @@
 
 import { ClosePosPopup } from "@point_of_sale/app/navbar/closing_popup/closing_popup";
 import { patch } from "@web/core/utils/patch";
-import { useState } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
+import { MoneyDetailsPopupUSD } from "./money_details_popup_usd";
+import { _t } from "@web/core/l10n/translation";
+import { parseFloat } from "@web/views/fields/parsers";
 
-// Pachacutec: v137 - Estabilización de Assets y Templates Odoo 18
-// Elimina AlertDialog (no disponible en assets_pos) y renombra parches.
+// Pachacutec: v18.0.1.2.19 - Estabilización de Assets, Props y Reactividad Odoo 18
+if (ClosePosPopup.props) {
+    if (Array.isArray(ClosePosPopup.props)) {
+        const propsObj = {};
+        for (const propName of ClosePosPopup.props) {
+            propsObj[propName] = { optional: true };
+        }
+        ClosePosPopup.props = propsObj;
+    }
+    Object.assign(ClosePosPopup.props, {
+        default_cash_details_ref: { type: Object, optional: true },
+        igtf_totals: { type: Object, optional: true },
+        amount_authorized_diff_ref: { type: Number, optional: true },
+    });
+}
 
-// Pachacutec: v18.0.1.1.6 - OPCIÓN NUCLEAR (Blindaje Definitivo)
-// Desactivamos la validación de props de Owl para este componente.
-// Esto evita el crash 'toLowerCase' causado por conflictos de infraestructura entre parches.
-ClosePosPopup.props = false;
 
 patch(ClosePosPopup.prototype, {
     setup() {
         super.setup();
         this.dialog = useService("dialog");
         this.manualInputCashCountUSD = false;
+        this.moneyDetailsUSD = null;
+    },
 
-        // Initialize state payments_usd safely
-        if (!this.state.payments_usd) {
-            this.state.payments_usd = {};
-        }
-        
-        const cashDetails = this.props.default_cash_details;
-        if (this.pos.config.cash_control && cashDetails && cashDetails.default_cash_details_ref) {
-            const ref_id = cashDetails.default_cash_details_ref.id;
-            if (ref_id && !this.state.payments_usd[ref_id]) {
-                this.state.payments_usd[ref_id] = {
-                    counted: 0,
-                    difference: -(cashDetails.default_cash_details_ref.amount || 0),
-                    number: 0
+    getInitialState() {
+        const state = super.getInitialState();
+        state.payments_usd = {};
+        const cashDetailsRef = this.props.default_cash_details_ref;
+        if (this.pos.config.cash_control && cashDetailsRef && cashDetailsRef.id) {
+            const ref_id = cashDetailsRef.id;
+            state.payments_usd[ref_id] = {
+                counted: "0",
+                difference: -(cashDetailsRef.amount || 0),
+                number: 0
+            };
+            if (!state.payments[ref_id]) {
+                state.payments[ref_id] = {
+                    counted: "0",
                 };
             }
         }
+        return state;
+    },
 
-        Object.assign(this.state, {
-            displayMoneyDetailsPopupUSD: false,
-        });
+    autoFillCashCountUSD() {
+        const cashDetailsRef = this.props.default_cash_details_ref;
+        if (cashDetailsRef && cashDetailsRef.id) {
+            const ref_id = cashDetailsRef.id;
+            const count = cashDetailsRef.amount;
+            this.state.payments_usd[ref_id].counted = this.env.utils.formatCurrency(count, false);
+            this.handleInputChangeUSD(ref_id);
+        }
     },
 
     async confirm() {
@@ -47,17 +68,17 @@ patch(ClosePosPopup.prototype, {
             return super.confirm();
         } else if (this.hasUserAuthorityUSD()) {
             const confirmed = await this.dialog.add(ConfirmationDialog, {
-                title: this.env._t("Currency Ref Payments Difference"),
-                body: this.env._t("Do you want to accept currency ref payments difference and post a profit/loss journal entry?"),
+                title: _t("Currency Ref Payments Difference"),
+                body: _t("Do you want to accept currency ref payments difference and post a profit/loss journal entry?"),
             });
             if (confirmed) {
                 return super.confirm();
             }
         } else {
             await this.dialog.add(ConfirmationDialog, {
-                title: this.env._t("Currency Ref Payments Difference"),
+                title: _t("Currency Ref Payments Difference"),
                 body: _.str.sprintf(
-                    this.env._t("The maximum difference by currency ref allowed is %s.\nContact your manager to accept."),
+                    _t("The maximum difference by currency ref allowed is %s.\nContact your manager to accept."),
                     this.pos.format_currency_ref(this.props.amount_authorized_diff_ref)
                 ),
             });
@@ -65,45 +86,67 @@ patch(ClosePosPopup.prototype, {
     },
 
     openDetailsPopupUSD() {
-        const ref_id = this.props.default_cash_details?.default_cash_details_ref?.id;
+        const ref_id = this.props.default_cash_details_ref?.id;
         if (!ref_id || !this.state.payments_usd[ref_id]) return;
-        this.state.payments_usd[ref_id].counted = 0;
-        this.state.payments_usd[ref_id].difference = -(this.props.default_cash_details.default_cash_details_ref.amount || 0);
-        this.state.displayMoneyDetailsPopupUSD = true;
-    },
 
-    closeDetailsPopupUSD() {
-        this.state.displayMoneyDetailsPopupUSD = false;
+        const action = _t("Cash control USD - closing");
+        this.dialog.add(MoneyDetailsPopupUSD, {
+            moneyDetails: this.moneyDetailsUSD || null,
+            action: action,
+            getPayload: (payload) => {
+                if (payload) {
+                    const { total, moneyDetailsNotes, moneyDetails } = payload;
+                    const formattedTotal = this.env.utils.formatCurrency(total, false);
+                    this.state.payments_usd[ref_id].counted = formattedTotal;
+                    this.state.payments_usd[ref_id].difference =
+                        Math.round((total - this.props.default_cash_details_ref.amount) * 10000) / 10000;
+                    
+                    if (this.state.payments[ref_id]) {
+                        this.state.payments[ref_id].counted = formattedTotal;
+                    }
+
+                    if (moneyDetailsNotes) {
+                        this.state.notes = (this.state.notes ? this.state.notes + "\n" : "") + moneyDetailsNotes;
+                    }
+                    this.moneyDetailsUSD = moneyDetails;
+                }
+            },
+            context: "Closing USD",
+        });
     },
 
     handleInputChangeUSD(paymentId) {
-        const ref_id = this.props.default_cash_details?.default_cash_details_ref?.id;
+        const ref_id = this.props.default_cash_details_ref?.id;
         if (!this.state.payments_usd || !this.state.payments_usd[paymentId]) return;
 
-        let expectedAmount;
+        let expectedAmount = 0;
         if (paymentId === ref_id) {
             this.manualInputCashCountUSD = true;
-            expectedAmount = this.props.default_cash_details.default_cash_details_ref.amount;
+            expectedAmount = this.props.default_cash_details_ref.amount;
         } else {
             expectedAmount = this.props.non_cash_payment_methods.find(pm => paymentId === pm.id)?.amount || 0;
         }
+        
+        const rawCounted = this.state.payments_usd[paymentId].counted;
+        const parsedCounted = this.env.utils.isValidFloat(rawCounted) ? parseFloat(rawCounted) : 0;
+
         this.state.payments_usd[paymentId].difference =
-            this.pos.round_decimals_currency(this.state.payments_usd[paymentId].counted - expectedAmount);
+            Math.round((parsedCounted - expectedAmount) * 10000) / 10000;
+
+        if (this.state.payments[paymentId]) {
+            this.state.payments[paymentId].counted = rawCounted.toString();
+        }
     },
 
-    updateCountedCashUSD({ total_ref, moneyDetailsNotesRef }) {
-        const ref_id = this.props.default_cash_details?.default_cash_details_ref?.id;
-        if (!ref_id || !this.state.payments_usd || !this.state.payments_usd[ref_id]) return;
-
-        this.state.payments_usd[ref_id].counted = total_ref;
-        this.state.payments_usd[ref_id].difference =
-            this.pos.round_decimals_currency(this.state.payments_usd[ref_id].counted - this.props.default_cash_details.default_cash_details_ref.amount);
-        
-        if (moneyDetailsNotesRef) {
-            this.state.notes += moneyDetailsNotesRef;
+    getDifference(paymentId) {
+        const ref_id = this.props.default_cash_details_ref?.id;
+        if (ref_id && paymentId === ref_id) {
+            if (!this.state.payments_usd || !this.state.payments_usd[paymentId]) {
+                return 0;
+            }
+            return this.state.payments_usd[paymentId].difference;
         }
-        this.manualInputCashCountUSD = false;
-        this.closeDetailsPopupUSD();
+        return super.getDifference(paymentId);
     },
 
     hasDifferenceUSD() {
@@ -121,12 +164,15 @@ patch(ClosePosPopup.prototype, {
     async closeSession() {
         if (!this.closeSessionClicked) {
             this.closeSessionClicked = true;
-            const ref_id = this.props.default_cash_details?.default_cash_details_ref?.id;
+            const ref_id = this.props.default_cash_details_ref?.id;
+            const sessionId = this.pos.pos_session?.id || this.pos.session?.id;
             if (this.pos.config.cash_control && ref_id && this.state.payments_usd && this.state.payments_usd[ref_id]) {
+                const rawCounted = this.state.payments_usd[ref_id].counted;
+                const parsedCounted = this.env.utils.isValidFloat(rawCounted) ? parseFloat(rawCounted) : 0;
                 const response = await this.pos.data.call('pos.session', 'post_closing_cash_details_ref', [
-                    [this.pos.pos_session.id]
+                    [sessionId]
                 ], {
-                    counted_cash: this.state.payments_usd[ref_id].counted,
+                    counted_cash: parsedCounted,
                 });
                 if (response && !response.successful) {
                     this.closeSessionClicked = false;
@@ -134,7 +180,7 @@ patch(ClosePosPopup.prototype, {
                 }
             }
             await this.pos.data.call('pos.session', 'update_closing_control_state_session_ref', [
-                [this.pos.pos_session.id],
+                [sessionId],
                 this.state.notes
             ]);
             this.closeSessionClicked = false;

@@ -16,7 +16,7 @@ class PosSession(models.Model):
 
     tax_today = fields.Float(string="Tasa Sesión", store=True,
                              compute="_tax_today",
-                             digits=(16, 4))
+                             digits=(16, 8))
 
     ref_me_currency_id = fields.Many2one('res.currency', related='config_id.show_currency', string="Reference Currency",
                                          store=False)
@@ -36,7 +36,7 @@ class PosSession(models.Model):
         string="Reference Ending Balance",
         currency_field='ref_me_currency_id',
         readonly=True)
-    me_ref_cash_journal_id = fields.Many2one('account.journal', compute='_compute_cash_all', string='Ref Cash Journal',
+    me_ref_cash_journal_id = fields.Many2one('account.journal', compute='_compute_cash_journal', string='Ref Cash Journal',
                                              store=True)
 
     cash_register_total_entry_encoding_ref = fields.Monetary(
@@ -171,8 +171,8 @@ class PosSession(models.Model):
         self.message_post(body='<br/>\n'.join(message_content))
 
     @api.depends('config_id', 'payment_method_ids')
-    def _compute_cash_all(self):
-        # super(PosSession, self)._compute_cash_all()
+    def _compute_cash_journal(self):
+        super(PosSession, self)._compute_cash_journal()
         for session in self:
             session.me_ref_cash_journal_id = False
             cash_journal_ref = session.payment_method_ids.filtered(
@@ -184,27 +184,42 @@ class PosSession(models.Model):
     def get_closing_control_data(self):
         closing_control_data = super(PosSession, self).get_closing_control_data()
         self.ensure_one()
-        orders = self.order_ids.filtered(lambda o: o.state == 'paid' or o.state == 'invoiced')
+        
+        cash_payment_methods = self.payment_method_ids.filtered(lambda pm: pm.type == 'cash')
+        
+        # Identificar método de efectivo extranjero (USD)
+        default_cash_payment_ref_method_id = None
+        for pm in cash_payment_methods:
+            if pm.currency_id == self.ref_me_currency_id or (pm.journal_id and pm.journal_id.currency_id == self.ref_me_currency_id):
+                default_cash_payment_ref_method_id = pm
+                break
+        if not default_cash_payment_ref_method_id:
+            for pm in cash_payment_methods:
+                name_upper = (pm.name or '').upper()
+                if '$' in name_upper or 'USD' in name_upper:
+                    default_cash_payment_ref_method_id = pm
+                    break
+                    
+        # Identificar método de efectivo local (Bs)
+        default_cash_payment_method_id = None
+        for pm in cash_payment_methods:
+            if pm != default_cash_payment_ref_method_id:
+                default_cash_payment_method_id = pm
+                break
+                
+        orders = self._get_closed_orders()
         payments = orders.payment_ids.filtered(lambda p: p.payment_method_id.type != "pay_later")
-        cash_payment_method_ref_ids = self.payment_method_ids.filtered(
-            lambda pm: pm.type == 'cash' and pm.currency_id == self.ref_me_currency_id)
-        default_cash_payment_ref_method_id = cash_payment_method_ref_ids[0] if cash_payment_method_ref_ids else None
-        total_default_cash_ref_payment_amount = sum(
-            payments.filtered(lambda p: p.payment_method_id == default_cash_payment_ref_method_id).mapped(
-                'amount_ref')) if default_cash_payment_ref_method_id else 0
-        cash_payment_method_ids = self.payment_method_ids.filtered(
-            lambda pm: pm.type == 'cash' and pm.currency_id != self.ref_me_currency_id)
-        default_cash_payment_method_id = cash_payment_method_ids[0] if cash_payment_method_ids else None
-        other_payment_method_ids = self.payment_method_ids - default_cash_payment_ref_method_id if default_cash_payment_ref_method_id else self.payment_method_ids
-        other_payment_method_update_ids = other_payment_method_ids - default_cash_payment_method_id if default_cash_payment_method_id else other_payment_method_ids
+        
+        # Separar movimientos de caja según moneda
         cash_in_count = 0
         cash_out_count = 0
+        cash_in_out_list = []
+        
         cash_in_count_ref = 0
         cash_out_count_ref = 0
-        cash_in_out_list = []
         cash_in_out_list_ref = []
-        last_session = self.search([('config_id', '=', self.config_id.id), ('id', '!=', self.id)], limit=1)
-        for cash_move in self.statement_line_ids.sorted('create_date'):
+        
+        for cash_move in self.sudo().statement_line_ids.sorted('create_date'):
             if cash_move.currency_id == self.ref_me_currency_id:
                 if cash_move.amount > 0:
                     cash_in_count_ref += 1
@@ -227,36 +242,89 @@ class PosSession(models.Model):
                     'name': cash_move.payment_ref if cash_move.payment_ref else name,
                     'amount': cash_move.amount
                 })
-
-        default_cash_details_ref = {
-            'name': default_cash_payment_ref_method_id.name,
-            'amount': last_session.cash_register_balance_end_real_mn_ref
-                      + total_default_cash_ref_payment_amount
-                      + sum(
-                self.statement_line_ids.filtered(lambda s: s.currency_id == self.ref_me_currency_id).mapped('amount')),
-            'opening': last_session.cash_register_balance_end_real_mn_ref,
-            'moves': cash_in_out_list_ref,
-            'payment_amount': total_default_cash_ref_payment_amount,
-            'id': default_cash_payment_ref_method_id.id,
-        } if default_cash_payment_ref_method_id else {
-            'name': None,
-            'amount': last_session.cash_register_balance_end_real_mn_ref
-                      + total_default_cash_ref_payment_amount
-                      + sum(
-                self.statement_line_ids.filtered(lambda s: s.currency_id == self.ref_me_currency_id).mapped('amount')),
-            'opening': last_session.cash_register_balance_end_real_mn_ref,
-            'moves': cash_in_out_list_ref,
-            'payment_amount': total_default_cash_ref_payment_amount,
-            'id': None,
+                
+        # Estructurar detalles de efectivo Bs (local)
+        if default_cash_payment_method_id:
+            local_payments = payments.filtered(lambda p: p.payment_method_id == default_cash_payment_method_id)
+            total_local_payment_amount = sum(local_payments.mapped('amount'))
+            
+            closing_control_data['default_cash_details'] = {
+                'name': default_cash_payment_method_id.name,
+                'amount': self.cash_register_balance_start 
+                          + total_local_payment_amount 
+                          + sum(self.sudo().statement_line_ids.filtered(lambda s: s.currency_id.id != (self.ref_me_currency_id.id or 0)).mapped('amount')),
+                'opening': self.cash_register_balance_start,
+                'payment_amount': total_local_payment_amount,
+                'moves': cash_in_out_list,
+                'id': default_cash_payment_method_id.id
+            }
+        else:
+            closing_control_data['default_cash_details'] = {
+                'name': '',
+                'amount': 0.0,
+                'opening': 0.0,
+                'payment_amount': 0.0,
+                'moves': [],
+                'id': False
+            }
+            
+        # Estructurar detalles de efectivo USD (referencia)
+        if default_cash_payment_ref_method_id:
+            ref_payments = payments.filtered(lambda p: p.payment_method_id == default_cash_payment_ref_method_id)
+            total_ref_payment_amount = sum(ref_payments.mapped('amount_ref'))
+            
+            closing_control_data['default_cash_details_ref'] = {
+                'name': default_cash_payment_ref_method_id.name,
+                'amount': self.cash_register_balance_start_mn_ref 
+                          + total_ref_payment_amount 
+                          + sum(self.sudo().statement_line_ids.filtered(lambda s: s.currency_id.id == (self.ref_me_currency_id.id or 0)).mapped('amount')),
+                'opening': self.cash_register_balance_start_mn_ref,
+                'payment_amount': total_ref_payment_amount,
+                'moves': cash_in_out_list_ref,
+                'id': default_cash_payment_ref_method_id.id,
+                'igtf_amount': sum(p.amount * 0.03 for p in ref_payments),
+                'igtf_amount_ref': sum(p.amount_ref * 0.03 for p in ref_payments),
+            }
+        else:
+            closing_control_data['default_cash_details_ref'] = {
+                'name': '',
+                'amount': 0.0,
+                'opening': 0.0,
+                'payment_amount': 0.0,
+                'moves': [],
+                'id': False,
+                'igtf_amount': 0.0,
+                'igtf_amount_ref': 0.0,
+            }
+            
+        # Re-calcular non_cash_payment_methods excluyendo ambos efectivos
+        non_cash_methods = self.payment_method_ids.filtered(lambda pm: pm.type != 'cash')
+        non_cash_list = []
+        for pm in non_cash_methods:
+            pm_payments = payments.filtered(lambda p: p.payment_method_id == pm)
+            is_foreign = pm.x_is_foreign_exchange
+            non_cash_list.append({
+                'name': pm.name,
+                'amount': sum(pm_payments.mapped('amount')),
+                'amount_ref': sum(pm_payments.mapped('amount_ref')),
+                'number': len(pm_payments),
+                'id': pm.id,
+                'type': pm.type,
+                'x_is_foreign_exchange': is_foreign,
+                'igtf_amount': sum(p.amount * 0.03 for p in pm_payments) if is_foreign else 0.0,
+                'igtf_amount_ref': sum(p.amount_ref * 0.03 for p in pm_payments) if is_foreign else 0.0,
+            })
+        closing_control_data['non_cash_payment_methods'] = non_cash_list
+        
+        # Totales de IGTF recaudado
+        rate_today = self.tax_today or 1.0
+        total_igtf_base_bs = sum(payments.filtered(lambda p: p.payment_method_id.x_is_foreign_exchange).mapped('amount'))
+        total_igtf_bs = total_igtf_base_bs * 0.03
+        
+        closing_control_data['igtf_totals'] = {
+            'total_igtf_bs': total_igtf_bs,
+            'total_igtf_ref': total_igtf_bs * rate_today,
         }
-        if 'default_cash_details' in closing_control_data:
-            if closing_control_data['default_cash_details']:
-                closing_control_data['default_cash_details']['amount'] = closing_control_data['default_cash_details'][
-                                                                             'amount'] - sum(
-                    self.statement_line_ids.filtered(lambda s: s.currency_id == self.ref_me_currency_id).mapped(
-                        'amount'))
-                closing_control_data['default_cash_details']['default_cash_details_ref'] = default_cash_details_ref
-                closing_control_data['default_cash_details']['moves'] = cash_in_out_list
         return closing_control_data
 
     def post_closing_cash_details_ref(self, counted_cash):
@@ -311,13 +379,13 @@ class PosSession(models.Model):
                     [('session_id', '=', session.id), ('payment_method_id', '=', cash_payment_method.id)], ['session_id'],
                     ['amount:sum'])
                 if result:
-                    total_cash_payment = result[0]['amount']
+                    total_cash_payment = result[0][1]
                 session.cash_register_total_entry_encoding_ref = sum(
                     session.statement_line_ids.filtered(lambda s: s.currency_id == session.ref_me_currency_id).mapped(
                         'amount')) + (
                                                                       0.0 if session.state == 'closed' else total_cash_payment
                                                                   )
-                session.cash_register_balance_end_ref = last_session.cash_register_balance_end_real_mn_ref + session.cash_register_total_entry_encoding_ref
+                session.cash_register_balance_end_ref = session.cash_register_balance_start_mn_ref + session.cash_register_total_entry_encoding_ref
                 session.cash_register_difference_ref = session.cash_register_balance_end_real_mn_ref - session.cash_register_balance_end_ref
             else:
                 session.cash_register_total_entry_encoding_ref = 0.0
@@ -535,12 +603,18 @@ class PosSession(models.Model):
         return self.action_pos_session_close_ref(balancing_account, amount_to_balance, bank_payment_method_diffs)
 
     def action_pos_session_open(self):
-        for session in self.filtered(lambda session: session.state == 'opening_control'):
-            if session.config_id.cash_control and not session.rescue:
+        return super(PosSession, self).action_pos_session_open()
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        sessions = super(PosSession, self).create(vals_list)
+        for session in sessions:
+            if session.config_id.cash_control:
                 last_session = self.search([('config_id', '=', session.config_id.id), ('id', '!=', session.id)],
                                            limit=1)
-                session.cash_register_balance_start_mn_ref = last_session.cash_register_balance_end_real_mn_ref
-        return super(PosSession, self).action_pos_session_open()
+                if last_session:
+                    session.cash_register_balance_start_mn_ref = last_session.cash_register_balance_end_real_mn_ref
+        return sessions
 
     @api.depends('config_id')
     def _tax_today(self):

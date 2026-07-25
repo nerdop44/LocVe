@@ -60,10 +60,11 @@ class StockValuationLayer(models.Model):
                             new_rate = 1 / new_rate_ids[company.currency_id_dif.id]
                 move_id = self.env['account.move'].sudo().with_context(check_move_validity=False).search(
                     [('id', '=', vals['account_move_id'])])
-                #
                 if move_id:
-                    move_id.button_draft()
-                    if move_id.line_ids[0].currency_id != self.currency_id:
+                    is_posted = move_id.state == 'posted'
+                    if is_posted:
+                        move_id.button_draft()
+                    if move_id.line_ids and move_id.line_ids[0].currency_id != self.currency_id:
                         for l in move_id.line_ids:
                             l.currency_id = self.currency_id
                             if l.amount_currency < 0:
@@ -74,7 +75,8 @@ class StockValuationLayer(models.Model):
                         move_id.tax_today = new_rate
                     else:
                         move_id.tax_today = rec.tasa
-                #move_id._post()
+                    if is_posted:
+                        move_id.action_post()
 
         return super(StockValuationLayer, self).write(vals)
 

@@ -6,7 +6,7 @@
     'author': 'Ing. Nerdo Jose Pulido Aguirre',
     'website': 'https://github.com/nerdop44',
     'category': 'Accounting/Accounting',
-    'version': '18.0.2.0.0',
+    'version': '18.0.2.2.1',
     'depends': ['base', 'contacts'],
     'data': ['security/ir.model.access.csv', 'data/res_country_state_data.xml', 'data/res_country_municipality_data.xml', 'data/res_country_parish_data.xml', 'views/res_country_parish_views.xml', 'views/res_country_municipality_views.xml', 'views/res_country_city_views.xml', 'views/res_partner_views.xml', 'views/menus.xml'],
     'application': True,

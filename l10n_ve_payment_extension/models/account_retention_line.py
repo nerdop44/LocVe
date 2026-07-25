@@ -141,14 +141,8 @@ class AccountRetentionLine(models.Model):
         if self.move_id:
             invoice = self.move_id
 
-            # Asegurarse de que 'tax_totals' esté disponible y tenga los datos necesarios
-            # Odoo 16+ ya tiene 'tax_totals' como un diccionario bien estructurado.
-            tax_totals = invoice.tax_totals if hasattr(invoice, 'tax_totals') and invoice.tax_totals else {}
-
-            self.invoice_total = tax_totals.get('amount_total', 0.0)
-            self.foreign_invoice_total = tax_totals.get('foreign_amount_total', self.invoice_total) 
-
-            self.invoice_amount = tax_totals.get('amount_untaxed', 0.0)
+            self.invoice_total = invoice.amount_total
+            self.invoice_amount = invoice.amount_untaxed
             
             # Identificar las monedas dinámicamente
             if self.retention_id:
@@ -174,7 +168,7 @@ class AccountRetentionLine(models.Model):
                 self.foreign_invoice_total = getattr(invoice, 'amount_total_bs', 0.0) or (invoice.amount_total * used_rate)
             
             # Poblar los campos de IVA directamente (Estimación proporcional si no hay campo signed de tax)
-            self.iva_amount = tax_totals.get('amount_tax', 0.0)
+            self.iva_amount = invoice.amount_tax
             self.foreign_iva_amount = self.foreign_invoice_total - self.foreign_invoice_amount
 
             self.foreign_currency_rate = used_rate
@@ -275,8 +269,18 @@ class AccountRetentionLine(models.Model):
             invoice_is_in_vef = invoice_currency.name in ('VEF', 'VES')
 
             # Montos en moneda empresa (Bs. o USD)
-            amount_untaxed_company = tax_totals.get('base_amount', tax_totals.get('base_amount_currency', 0.0))
-            amount_total_company = tax_totals.get('total_amount', tax_totals.get('total_amount_currency', 0.0))
+            amount_untaxed_company = invoice_currency._convert(
+                record.move_id.amount_untaxed,
+                record.env.company.currency_id,
+                record.move_id.company_id,
+                record.move_id.date or fields.Date.context_today(record)
+            )
+            amount_total_company = invoice_currency._convert(
+                record.move_id.amount_total,
+                record.env.company.currency_id,
+                record.move_id.company_id,
+                record.move_id.date or fields.Date.context_today(record)
+            )
 
             # Montos en VEF (Regla v62: Tasa Dual)
             if invoice_is_in_vef:
@@ -339,7 +343,7 @@ class AccountRetentionLine(models.Model):
             used_rate = today_rate if (record.retention_id and record.retention_id.use_today_rate) else invoice_rate
 
             # Monto en moneda de la empresa
-            amount_untaxed = tax_totals.get("amount_untaxed", 0.0)
+            amount_untaxed = record.move_id.amount_untaxed
 
             # Monto en moneda fiscal (Bs.)
             if invoice_is_in_vef:
@@ -408,18 +412,15 @@ class AccountRetentionLine(models.Model):
         )
 
         for record in municipal_lines:
-            tax_totals = record.move_id.tax_totals or {}
             if not record.retention_id or record.retention_id.type == "in_invoice":
-                record.invoice_amount = tax_totals.get("amount_untaxed", 0.0)
-                record.foreign_invoice_amount = tax_totals.get("foreign_amount_untaxed", 0.0)
+                record.invoice_amount = record.move_id.amount_untaxed
+                record.foreign_invoice_amount = getattr(record.move_id, 'amount_untaxed_bs', 0.0) or (record.move_id.amount_untaxed * (record.move_id.foreign_rate or 1.0))
 
-            # >>> AÑADE ESTAS DOS LÍNEAS AQUÍ para capturar el IVA en retenciones municipales
-            record.iva_amount = tax_totals.get("amount_tax", 0.0) 
-            record.foreign_iva_amount = tax_totals.get("foreign_amount_tax", 0.0) 
+            record.iva_amount = record.move_id.amount_tax
+            record.foreign_iva_amount = getattr(record.move_id, 'amount_tax_bs', 0.0) or (record.move_id.amount_tax * (record.move_id.foreign_rate or 1.0))
 
-
-            record.invoice_total = tax_totals.get("amount_total", 0.0)
-            record.foreign_invoice_total = tax_totals.get("foreign_amount_total", 0.0)
+            record.invoice_total = record.move_id.amount_total
+            record.foreign_invoice_total = getattr(record.move_id, 'amount_total_bs', 0.0) or (record.move_id.amount_total * (record.move_id.foreign_rate or 1.0))
             record.foreign_currency_rate = record.move_id.foreign_rate or 1.0
 
             record.aliquot = record.economic_activity_id.aliquot

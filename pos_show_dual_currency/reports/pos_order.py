@@ -31,8 +31,20 @@ class ReportSaleDetails(models.AbstractModel):
 
         pos_session = self.env['pos.session'].search([('id', 'in', session_ids)]) if session_ids else self.env['pos.session']
         rate_today = 1
-        if pos_session and pos_session[0].tax_today != 0:
-            rate_today = pos_session[0].tax_today
+        if pos_session:
+            session = pos_session[0]
+            start_date = session.start_at or fields.Datetime.now()
+            rate_record = self.env['res.currency.rate'].search([
+                ('company_id', '=', session.company_id.id),
+                ('currency_id.name', '=', 'USD'),
+                ('name', '<=', start_date)
+            ], order='name desc', limit=1)
+            if rate_record:
+                rate_today = (1.0 / rate_record.rate) if rate_record.rate < 1.0 else rate_record.rate
+            else:
+                rate_today = session.tax_today or 1.0
+        else:
+            rate_today = self.env.company.currency_id_dif.inverse_rate or 1.0
 
         currency_id_dif = self.env.company.currency_id_dif
         data['currency_precision_ref'] = currency_id_dif.decimal_places

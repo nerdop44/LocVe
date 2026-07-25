@@ -19,6 +19,7 @@ class ResCountryMunicipalityBinauralLocalizacion(models.Model):
     name = fields.Char(string="Municipality", required=True)
 
     active = fields.Boolean(default=True)
+    partner_id = fields.Many2one("res.partner", string="Alcaldía (Contacto)", help="Contacto contable para enterar las retenciones")
 
     @api.onchange("name")
     def on_change_state(self):

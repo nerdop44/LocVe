@@ -40,9 +40,6 @@ class L10nVeVoidControlWizard(models.TransientModel):
         for wizard in self:
             wizard.next_control_number = _("No asignada o no disponible")
             if wizard.sequence_id:
-                # Obtener el siguiente número sin consumir el correlativo (inspeccionar secuencia)
-                # Odoo tiene next_by_id pero eso consume la secuencia. Para previsualizarla usamos get_next_char:
-                # self.sequence_id.get_next_char(self.sequence_id.number_next_actual)
                 seq = wizard.sequence_id
                 wizard.next_control_number = seq.get_next_char(seq.number_next_actual)
 

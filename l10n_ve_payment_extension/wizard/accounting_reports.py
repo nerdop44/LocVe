@@ -213,18 +213,62 @@ class WizardAccountingReports(models.TransientModel):
     def _sum_retention_total(self, lines):
         is_check_currency_system = self.currency_system
         retention = lines.mapped("retention_id")
+        is_purchase = self.report == "purchase"
+        ret_date = retention.date_accounting
 
         if (
-            self.report == "purchase"
-            and retention
-            and self._check_future_retention_dates(retention.date)
+            retention
+            and self._check_future_retention_dates(ret_date)
             or lines.move_id.state == "cancel"
         ):
             return 0.0
-        if not is_check_currency_system:
-            return sum(lines.mapped("foreign_retention_amount"))
 
-        return sum(lines.mapped("retention_amount"))
+        company_currency = self.env.company.currency_id
+        company_currency_is_vef = (
+            company_currency.name in ("VES", "VEF", "Bs.", "Bs.S", "Bs.D", "Bs.F")
+            or company_currency.symbol in ("Bs.", "Bs.S", "Bs.D", "Bs.F")
+        )
+        retention_amount = sum(lines.mapped("retention_amount"))
+        foreign_retention_amount = sum(lines.mapped("foreign_retention_amount"))
+        
+        # 1. Obtener tasa nativa desde Odoo usando _convert
+        move = lines[0].move_id
+        invoice_currency = move.currency_id
+        
+        rate = 1.0
+        if invoice_currency != company_currency:
+            try:
+                rate = invoice_currency._convert(
+                    1.0,
+                    company_currency,
+                    move.company_id,
+                    move.invoice_date or move.date or fields.Date.today()
+                )
+            except Exception:
+                rate = move.tax_today or lines[0].foreign_currency_rate or move.foreign_rate or 1.0
+        else:
+            rate = 1.0
+            
+        if rate <= 0.0:
+            rate = 1.0
+
+        # 2. Clasificación basada en magnitud física (autocurativa)
+        if abs(foreign_retention_amount - retention_amount) < 0.01:
+            if company_currency_is_vef:
+                ves_val = retention_amount * rate if rate > 1.0 else retention_amount
+                usd_val = retention_amount
+            else:
+                ves_val = retention_amount
+                usd_val = retention_amount / rate if rate > 1.0 else retention_amount
+        else:
+            ves_val = max(retention_amount, foreign_retention_amount)
+            usd_val = min(retention_amount, foreign_retention_amount)
+
+        # 3. Retornar según moneda solicitada
+        if company_currency_is_vef:
+            return ves_val if is_check_currency_system else usd_val
+        else:
+            return usd_val if is_check_currency_system else ves_val
 
     def _check_future_retention_dates(self, cmp_date):
         return cmp_date < self.date_from or cmp_date > self.date_to

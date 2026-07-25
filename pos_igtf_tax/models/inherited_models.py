@@ -9,6 +9,36 @@ _logger = logging.getLogger(__name__)
 class PosSession(models.Model):
     _inherit = 'pos.session'
 
+    @api.model
+    def _load_pos_data(self, data):
+        result = super()._load_pos_data(data)
+        
+        # Inyectar dinámicamente el producto IGTF en la caché del POS (product.product)
+        pos_config = self.env['pos.config'].browse(self.env.context.get('pos_config_id'))
+        if pos_config and pos_config.x_igtf_product_id:
+            igtf_product = pos_config.x_igtf_product_id
+            
+            if 'product.product' not in result:
+                result['product.product'] = {'data': []}
+                
+            product_list = result['product.product'].get('data', [])
+            product_ids = {p['id'] for p in product_list}
+            
+            if igtf_product.id not in product_ids:
+                _logger.info("[IGTF] Inyectando producto IGTF '%s' (ID %s) en los datos del POS", igtf_product.name, igtf_product.id)
+                fields_to_read = self.env['product.product']._load_pos_data_fields(pos_config.id)
+                fields_to_read = list(set(fields_to_read + ['id', 'display_name', 'lst_price']))
+                
+                igtf_product_data = igtf_product.sudo().search_read(
+                    [('id', '=', igtf_product.id)],
+                    fields_to_read
+                )
+                if igtf_product_data:
+                    product_list.append(igtf_product_data[0])
+                    result['product.product']['data'] = product_list
+                    
+        return result
+
     # Pachacutec: v18 - Odoo 18 usa _load_pos_data_fields en el modelo.
     # Eliminamos _loader_params obsoletos de Odoo 17/16.
 
@@ -63,9 +93,9 @@ class PosSession(models.Model):
         """
         data = super()._accumulate_amounts(data)
 
-        # Solo aplicar si el POS está configurado para IGTF
+        # Solo aplicar si el POS está configurado para IGTF y la compañía es contribuyente especial
         igtf_product = self.config_id.x_igtf_product_id
-        if not igtf_product or not self.config_id.aplicar_igtf:
+        if not igtf_product or not self.config_id.aplicar_igtf or self.config_id.company_id.taxpayer_type != 'special':
             return data
 
         # Cuenta de ingresos del producto IGTF: buscar via jerarquía template→categoría
@@ -131,6 +161,30 @@ class PosOrder(models.Model):
         fields.append('x_is_igtf_line')
         
         return fields
+
+    @api.model
+    def _complete_values_from_session(self, session, values):
+        res = super()._complete_values_from_session(session, values)
+        if not res.get('company_id') and session:
+            res['company_id'] = session.config_id.company_id.id or session.company_id.id
+        return res
+
+    @api.model
+    def _process_order(self, order, existing_order):
+        if order:
+            session_id = order.get('session_id')
+            pos_session = self.env['pos.session'].browse(session_id) if session_id else self.env['pos.session']
+            if not session_id or not pos_session.exists():
+                valid_session = self._get_valid_session(order)
+                if valid_session:
+                    _logger.warning("[IGTF] Reparando session_id nulo/inválido en el pedido. Asignando sesión: %s", valid_session.id)
+                    order['session_id'] = valid_session.id
+                    pos_session = valid_session
+            
+            if pos_session and not order.get('company_id'):
+                order['company_id'] = pos_session.company_id.id
+
+        return super()._process_order(order, existing_order)
         
 class PosOrderLine(models.Model):
     _inherit = "pos.order.line"
@@ -207,3 +261,10 @@ class ResConfigSettings(models.TransientModel):
                 raise ValidationError("El producto IGTF debe tener una cuenta de ingresos configurada")
             if sum(rec.pos_x_igtf_product_id.taxes_id.mapped("amount")) != 0:
                 raise ValidationError("El producto IGTF debe ser exento")
+
+class ResCompany(models.Model):
+    _inherit = 'res.company'
+
+    @api.model
+    def _load_pos_data_fields(self, config_id):
+        return super()._load_pos_data_fields(config_id) + ['taxpayer_type']

@@ -48,17 +48,15 @@ class AccountMoveLine(models.Model):
             return rate
 
         for line in self:
-
-            self.env.context = dict(self.env.context, tasa_factura=line.move_id.tax_today, calcular_dual_currency=True)
-            # line.currency_rate = get_rate(
-            #     from_currency=line.company_currency_id,
-            #     to_currency=line.currency_id,
-            #     company=line.company_id,
-            #     date=line.move_id.invoice_date or line.move_id.date or fields.Date.context_today(line),
-            # )
-            line.currency_rate = 1 / line.move_id.tax_today if line.move_id.tax_today > 0 else 1
-
-        self.env.context = dict(self.env.context, tasa_factura=None, calcular_dual_currency=False)
+            if line.currency_id == line.company_currency_id:
+                line.currency_rate = 1.0
+            else:
+                if line.company_currency_id.name == 'USD':
+                    raw_rate = line.move_id.tax_today if line.move_id.tax_today > 0 else 1.0
+                else:
+                    raw_rate = 1.0 / line.move_id.tax_today if line.move_id.tax_today > 0 else 1.0
+                from odoo.tools.float_utils import float_round as _fr
+                line.currency_rate = _fr(raw_rate, precision_digits=6)
 
     @api.onchange('amount_currency')
     def _onchange_amount_currency(self):
@@ -373,10 +371,27 @@ class AccountMoveLine(models.Model):
         not_paid_invoices.filtered(lambda move:
             move.payment_state in ('paid', 'in_payment')
         )._invoice_paid_hook()
-        for parcial in results['partials']:
-            amount_usd = min(abs(parcial.debit_move_id.amount_residual_usd),
-                             abs(parcial.credit_move_id.amount_residual_usd))
-            parcial.write({'amount_usd': abs(amount_usd)})
+        # Sincronización secuencial de amount_usd en parciales (Sefinca/Innovo)
+        partials = results['partials'].sorted('id')
+        new_partial_ids = set(partials.ids)
+        rem_usd = {}
+        for p in partials:
+            debit = p.debit_move_id
+            credit = p.credit_move_id
+
+            if debit not in rem_usd:
+                already_reconciled = sum(other.amount_usd for other in debit.matched_credit_ids if other.id not in new_partial_ids)
+                rem_usd[debit] = max(0.0, (debit.debit_usd or 0.0) - already_reconciled)
+
+            if credit not in rem_usd:
+                already_reconciled = sum(other.amount_usd for other in credit.matched_debit_ids if other.id not in new_partial_ids)
+                rem_usd[credit] = max(0.0, (credit.credit_usd or 0.0) - already_reconciled)
+
+            amt_usd = min(rem_usd[debit], rem_usd[credit])
+            rem_usd[debit] -= amt_usd
+            rem_usd[credit] -= amt_usd
+
+            p.write({'amount_usd': amt_usd})
             self.env.cr.commit()
             # parcial.debit_move_id.move_id._compute_amount()
             # parcial.credit_move_id.move_id._compute_amount()

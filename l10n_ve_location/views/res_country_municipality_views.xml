@@ -30,6 +30,7 @@
 							<field name="country_id" />
 							<field name="state_id" widget="many2many_tags" domain="[('country_id.code','ilike','ve')]" />
 							<field name="name" />
+							<field name="partner_id"/>
 						</group>
 					</sheet>
 				</form>

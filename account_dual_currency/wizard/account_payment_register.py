@@ -175,11 +175,17 @@ class AccountPaymentRegister(models.TransientModel):
 
         currency_id_dif = lines[0].currency_id_dif
         amount_residual_usd = lines[0].move_id.amount_residual_usd
-        source_amount = abs(sum(lines.mapped('amount_residual'))) if key_values['currency_id'] == company.currency_id.id else abs(sum(lines.mapped('amount_residual_currency')))
+        invoice_currency = lines[0].currency_id or company.currency_id
+        source_amount = abs(sum(lines.mapped('amount_residual'))) if invoice_currency == company.currency_id else abs(sum(lines.mapped('amount_residual_currency')))
         if key_values['currency_id'] == company.currency_id.id:
             source_amount_currency = source_amount
         else:
             source_amount_currency = abs(sum(lines.mapped('amount_residual_currency')))
+            if source_amount_currency == 0 and source_amount > 0:
+                if company.currency_id.name == 'USD':
+                    source_amount_currency = source_amount * tax_today
+                else:
+                    source_amount_currency = source_amount / tax_today
 
         return {
             'company_id': company.id,
@@ -197,33 +203,42 @@ class AccountPaymentRegister(models.TransientModel):
         }
 
     def _create_payment_vals_from_wizard(self, batch_result):
-        payment_vals = {
-            'date': self.payment_date,
-            'amount': self.amount,
-            'payment_type': self.payment_type,
-            'partner_type': self.partner_type,
-            'memo': self.communication,
-            'journal_id': self.journal_id.id,
-            'currency_id': self.currency_id.id,
-            'partner_id': self.partner_id.id,
-            'partner_bank_id': self.partner_bank_id.id,
-            'payment_method_line_id': self.payment_method_line_id.id,
-            'destination_account_id': self.line_ids[0].account_id.id,
-            'tax_today': self.tax_today,
+        payment_vals = super()._create_payment_vals_from_wizard(batch_result)
+        tasa_a_usar = self.tax_invoice if self.usar_tasa_factura else self.tax_today
+        payment_vals.update({
+            'tax_today': tasa_a_usar,
             'currency_id_dif': self.currency_id_dif.id,
             'aplicar_igtf_divisa': self.aplicar_igtf_divisa,
             'journal_igtf_id': self.journal_igtf_id.id,
             'mount_igtf': self.mount_igtf,
             'amount_total_pagar': self.amount_total_pagar,
-        }
+        })
+        return payment_vals
 
-        # if not self.currency_id.is_zero(self.payment_difference) and self.payment_difference_handling == 'reconcile':
-        #     payment_vals['write_off_line_vals'] = {
-        #         'name': self.writeoff_label,
-        #         'amount': self.payment_difference,
-        #         'account_id': self.writeoff_account_id.id,
-        #     }
-        #raise 'asdsa'
+    def _create_payment_vals_from_batch(self, batch_result):
+        payment_vals = super()._create_payment_vals_from_batch(batch_result)
+        tasa_a_usar = self.tax_invoice if self.usar_tasa_factura else self.tax_today
+        payment_vals.update({
+            'tax_today': tasa_a_usar,
+            'currency_id_dif': self.currency_id_dif.id,
+            'aplicar_igtf_divisa': self.aplicar_igtf_divisa,
+            'journal_igtf_id': self.journal_igtf_id.id,
+            'mount_igtf': self.mount_igtf,
+            'amount_total_pagar': self.amount_total_pagar,
+        })
+        return payment_vals
+
+    def _prepare_payment_vals(self, batch_result):
+        payment_vals = super()._prepare_payment_vals(batch_result)
+        tasa_a_usar = self.tax_invoice if self.usar_tasa_factura else self.tax_today
+        payment_vals.update({
+            'tax_today': tasa_a_usar,
+            'currency_id_dif': self.currency_id_dif.id,
+            'aplicar_igtf_divisa': self.aplicar_igtf_divisa,
+            'journal_igtf_id': self.journal_igtf_id.id,
+            'mount_igtf': self.mount_igtf,
+            'amount_total_pagar': self.amount_total_pagar,
+        })
         return payment_vals
 
 
@@ -247,7 +262,7 @@ class AccountPaymentRegister(models.TransientModel):
 
                 if abs(self.line_ids[0].amount_residual_usd) > 0:
 
-                    if abs(self.line_ids[0].amount_residual_usd) > to_reconcile.amount_residual_usd:
+                    if abs(self.line_ids[0].amount_residual_usd) > abs(to_reconcile.amount_residual_usd):
 
                         monto_usd = abs(to_reconcile.amount_residual_usd)
                     else:

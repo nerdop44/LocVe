@@ -146,6 +146,40 @@ class AccountPayment(models.Model):
             move_id.action_post()
         return True
 
+    def action_draft(self):
+        res = super().action_draft()
+        for payment in self:
+            if payment.move_id_dif and payment.move_id_dif.state == 'posted':
+                payment.move_id_dif.button_draft()
+            if payment.move_id_igtf_divisa and payment.move_id_igtf_divisa.state == 'posted':
+                payment.move_id_igtf_divisa.button_draft()
+        return res
+
+    def action_cancel(self):
+        res = super().action_cancel()
+        for payment in self:
+            if payment.move_id_dif:
+                if payment.move_id_dif.state == 'posted':
+                    payment.move_id_dif.button_draft()
+                payment.move_id_dif.button_cancel()
+            if payment.move_id_igtf_divisa:
+                if payment.move_id_igtf_divisa.state == 'posted':
+                    payment.move_id_igtf_divisa.button_draft()
+                payment.move_id_igtf_divisa.button_cancel()
+        return res
+
+    def action_post(self):
+        res = super().action_post()
+        for payment in self:
+            if payment.move_id_dif and payment.move_id_dif.state == 'draft':
+                payment.move_id_dif._post(soft=False)
+            if payment.aplicar_igtf_divisa:
+                if not payment.move_id_igtf_divisa:
+                    payment.register_move_igtf_divisa_payment()
+                elif payment.move_id_igtf_divisa.state == 'draft':
+                    payment.move_id_igtf_divisa.action_post()
+        return res
+
     def _prepare_move_line_default_vals(self, write_off_line_vals=None, force_balance=None):
         res = super()._prepare_move_line_default_vals(write_off_line_vals, force_balance=force_balance)
         total_debit = 0
