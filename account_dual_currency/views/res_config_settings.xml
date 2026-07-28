@@ -28,6 +28,17 @@
                                     </div>
                                 </div>
                             </div>
+                            <div class="col-12 col-lg-6 o_setting_box" id="dual_currency_bcv_retry">
+                                <div class="o_setting_left_pane">
+                                    <field name="bcv_retry_enabled"/>
+                                </div>
+                                <div class="o_setting_right_pane">
+                                    <span class="o_form_label">Reintento Automático BCV</span>
+                                    <div class="text-muted">
+                                        Si la sincronización de la tasa falla, el sistema reintentará periódicamente hasta tener éxito.
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </block>
                 </xpath>

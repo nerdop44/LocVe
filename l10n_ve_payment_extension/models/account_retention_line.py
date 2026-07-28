@@ -386,18 +386,39 @@ class AccountRetentionLine(models.Model):
         )
         for record in islr_supplier_retention_lines:
             used_rate = record.foreign_currency_rate or record.move_id.tax_today or 1.0
+            subtract = record.related_amount_subtract_fees
+
+            # --- Control acumulativo del sustraendo (Punto 8) ---
+            # Si la empresa tiene activado islr_subtract_once_per_month,
+            # verificamos si ya existe una retención emitida en el mismo mes
+            # para el mismo partner con sustraendo aplicado.
+            if subtract > 0 and record.retention_id and record.retention_id.company_id.islr_subtract_once_per_month:
+                date_acc = record.retention_id.date_accounting
+                if date_acc:
+                    first_of_month = date_acc.replace(day=1)
+                    existing = self.env['account.retention.line'].search([
+                        ('retention_id.state', '=', 'emitted'),
+                        ('retention_id.type_retention', '=', 'islr'),
+                        ('retention_id.partner_id', '=', record.retention_id.partner_id.id),
+                        ('retention_id.date_accounting', '>=', first_of_month),
+                        ('retention_id.date_accounting', '<=', date_acc),
+                        ('related_amount_subtract_fees', '>', 0),
+                        ('id', '!=', record.id),
+                    ], limit=1)
+                    if existing:
+                        subtract = 0.0  # Sustraendo ya aplicado este mes a este RIF
 
             # Retención en moneda empresa
             record.retention_amount = (
                 (record.invoice_amount * (record.related_percentage_tax_base / 100))
                 * (record.related_percentage_fees / 100)
-            ) - (record.related_amount_subtract_fees / used_rate if used_rate else 0.0)
+            ) - (subtract / used_rate if used_rate else 0.0)
 
             # Retención en VEF (siempre — foreign_invoice_amount ya está en VEF)
             record.foreign_retention_amount = (
                 (record.foreign_invoice_amount * (record.related_percentage_tax_base / 100))
                 * (record.related_percentage_fees / 100)
-            ) - record.related_amount_subtract_fees
+            ) - subtract
 
 
     @api.onchange("economic_activity_id", "move_id")

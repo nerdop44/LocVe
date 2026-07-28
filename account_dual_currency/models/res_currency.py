@@ -268,13 +268,44 @@ class ResCurrency(models.Model):
                 except Exception:
                     val_eur = 0.0
 
+            # Parsear fecha de vigencia BCV
+            parsed_date = None
+            try:
+                fecha_el = html.find('div', class_='pull-right')
+                if not fecha_el:
+                    fecha_el = html.find(class_='fecha-valor')
+                if not fecha_el:
+                    fecha_el = html.find('span', class_='date-display-single')
+                
+                if fecha_el:
+                    date_str = fecha_el.text.strip().lower()
+                    meses = {
+                        'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4,
+                        'mayo': 5, 'junio': 6, 'julio': 7, 'agosto': 8,
+                        'septiembre': 9, 'octubre': 10, 'noviembre': 11, 'diciembre': 12
+                    }
+                    parts = date_str.replace(',', '').split()
+                    d = m = y = None
+                    for part in parts:
+                        if part.isdigit():
+                            if len(part) <= 2:
+                                d = int(part)
+                            elif len(part) == 4:
+                                y = int(part)
+                        elif part in meses:
+                            m = meses[part]
+                    if d and m and y:
+                        parsed_date = date(y, m, d)
+            except Exception as e:
+                pass
+
             curr_name = self.name
             if curr_name == 'USD':
-                return val_usd
+                return {'rate': val_usd, 'date': parsed_date}
             elif curr_name == 'EUR':
-                return val_eur
+                return {'rate': val_eur, 'date': parsed_date}
             elif curr_name in ['VES', 'VEF']:
-                return 1.0
+                return {'rate': 1.0, 'date': parsed_date}
             else:
                 return False
         else:
@@ -293,12 +324,22 @@ class ResCurrency(models.Model):
                 continue
 
             # Para monedas extranjeras (USD, EUR), se calcula su tasa BCV (ej: 523.675)
-            nueva_tasa_bcv = rec.get_bcv()
+            result = rec.get_bcv()
+            
+            # Gestionar reintento
+            if not result:
+                for c in self.env['res.company'].search([('bcv_retry_enabled', '=', True)]):
+                    c.bcv_retry_pending = True
+            
+            if result:
+                for c in self.env['res.company'].search([('bcv_retry_enabled', '=', True)]):
+                    c.bcv_retry_pending = False
+                
+                nueva_tasa_bcv = result['rate']
+                fecha_bcv = result.get('date') or fields.Date.context_today(self)
 
-            if nueva_tasa_bcv:
                 channel_id = self.env.ref('account_dual_currency.trm_channel')
                 company_ids = self.env['res.company'].search([])
-                today = fields.Date.context_today(self)
                 
                 # Definir contexto origen para auditoría
                 orig_ctx = 'from_button' if not self.env.context.get('from_cron') else 'from_cron'
@@ -308,13 +349,13 @@ class ResCurrency(models.Model):
                     odoo_rate = 1.0 / nueva_tasa_bcv
                     
                     tasa_actual = self.env['res.currency.rate'].sudo().search(
-                        [('name', '=', today), ('currency_id', '=', rec.id), ('company_id', '=', c.id)], limit=1)
+                        [('name', '=', fecha_bcv), ('currency_id', '=', rec.id), ('company_id', '=', c.id)], limit=1)
                     
                     nueva = False
                     if not tasa_actual:
                         self.env['res.currency.rate'].sudo().with_context({orig_ctx: True}).create({
                                 'currency_id': rec.id,
-                                'name': today,
+                                'name': fecha_bcv,
                                 'rate': odoo_rate,
                                 'company_id': c.id,
                         })
@@ -342,6 +383,21 @@ class ResCurrency(models.Model):
     def _cron_actualizar_tasa(self):
         # Pasar contexto from_cron=True para el registro de auditoría
         monedas = self.env['res.currency'].with_context(from_cron=True).search([('active', '=', True), ('sincronizar', '=', True)])
+        for m in monedas:
+            m.actualizar_tasa()
+
+    @api.model
+    def _cron_retry_bcv_sync(self):
+        """Reintento de sincronización BCV. Solo ejecuta si hay un reintento pendiente."""
+        companies = self.env['res.company'].search([
+            ('bcv_retry_enabled', '=', True),
+            ('bcv_retry_pending', '=', True),
+        ])
+        if not companies:
+            return  # Nada que reintentar
+        monedas = self.env['res.currency'].with_context(from_cron=True).search([
+            ('active', '=', True), ('sincronizar', '=', True)
+        ])
         for m in monedas:
             m.actualizar_tasa()
 

@@ -40,3 +40,12 @@ class ResConfigSettings(models.TransientModel):
         string="Sello de la Empresa",
         readonly=False,
     )
+
+    retention_sequence_annual_reset = fields.Boolean(
+        related='company_id.retention_sequence_annual_reset',
+        readonly=False,
+    )
+    islr_subtract_once_per_month = fields.Boolean(
+        related='company_id.islr_subtract_once_per_month',
+        readonly=False,
+    )

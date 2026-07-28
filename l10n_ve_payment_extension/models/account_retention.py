@@ -1398,18 +1398,22 @@ class AccountRetention(models.Model):
                 _logger.info(f"Asignando secuencia a retención {retention.id}")
             
                 sequence_number = ""
+                # Determinar si se usa reinicio anual de correlativos
+                use_annual_reset = retention.company_id.retention_sequence_annual_reset
+                seq_date = retention.date_accounting if use_annual_reset else None
+                
                 if retention.type_retention == "iva":
                     sequence = retention.get_sequence_iva_retention()
                     _logger.info(f"Secuencia IVA encontrada: {sequence.id}")
-                    sequence_number = sequence.next_by_id()
+                    sequence_number = sequence.next_by_id(sequence_date=seq_date) if seq_date else sequence.next_by_id()
                 elif retention.type_retention == "islr":
                     sequence = retention.get_sequence_islr_retention()
                     _logger.info(f"Secuencia ISLR encontrada: {sequence.id}")
-                    sequence_number = sequence.next_by_id()
+                    sequence_number = sequence.next_by_id(sequence_date=seq_date) if seq_date else sequence.next_by_id()
                 else:
                     sequence = retention.get_sequence_municipal_retention()
                     _logger.info(f"Secuencia Municipal encontrada: {sequence.id}")
-                    sequence_number = sequence.next_by_id()
+                    sequence_number = sequence.next_by_id(sequence_date=seq_date) if seq_date else sequence.next_by_id()
             
                 correlative = f"{retention.date_accounting.year}{retention.date_accounting.month:02d}{sequence_number}"
                 retention.name = correlative

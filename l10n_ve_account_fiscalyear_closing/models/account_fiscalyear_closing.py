@@ -156,6 +156,25 @@ class AccountFiscalyearClosing(models.Model):
             return True  # Permite el uso del parámetro 'states'
         return super(AccountFiscalyearClosing, self)._valid_field_parameter(field_name, parameter)
 
+    revaluation_executed = fields.Boolean(
+        string="Revaluación cambiaria ejecutada",
+        default=False,
+        help="Indica si el wizard de revaluación cambiaria fue ejecutado como parte del proceso de cierre.",
+    )
+    revaluation_move_ids = fields.Many2many(
+        'account.move',
+        string="Asientos de revaluación",
+        help="Asientos generados por el wizard de revaluación cambiaria al cierre.",
+    )
+
+    def action_revert_revaluation(self):
+        for closing in self:
+            if closing.revaluation_move_ids:
+                closing.revaluation_move_ids.button_draft()
+                closing.revaluation_move_ids.unlink()
+            closing.revaluation_executed = False
+            closing.revaluation_move_ids = [(5, 0, 0)]
+
     def draft_moves_check(self):
         for closing in self:
             draft_moves = self.env["account.move"].search(
@@ -185,6 +204,20 @@ class AccountFiscalyearClosing(models.Model):
 
     # Todo el registro de las cuentas esta en esta funcion
     def calculate(self):
+        for closing in self:
+            if not closing.revaluation_executed:
+                return {
+                    'type': 'ir.actions.act_window',
+                    'name': 'Revaluación Cambiaria al Cierre',
+                    'res_model': 'l10n_ve.revaluation.wizard',
+                    'view_mode': 'form',
+                    'target': 'new',
+                    'context': {
+                        'default_closing_id': closing.id,
+                        'default_closing_date': closing.date_end,
+                    },
+                }
+
         dest_account = (
             self.env["account.account"]
             .sudo()

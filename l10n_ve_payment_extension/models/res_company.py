@@ -43,3 +43,20 @@ class ResCompany(models.Model):
 
     signature_stamp_signature = fields.Binary(string="Firma de la Empresa (Rúbrica)")
     signature_stamp_stamp = fields.Binary(string="Sello de la Empresa (Húmedo)")
+
+    retention_sequence_annual_reset = fields.Boolean(
+        string="Reiniciar correlativos de retención anualmente",
+        default=False,
+        help="Si está activo, los correlativos de comprobantes de retención (IVA, ISLR, Municipal) "
+             "se reiniciarán a 00001 al inicio de cada año fiscal. Si está inactivo, la numeración "
+             "será continua (comportamiento actual).",
+    )
+    islr_subtract_once_per_month = fields.Boolean(
+        string="Aplicar sustraendo ISLR una sola vez por RIF/mes",
+        default=False,
+        help="Si está activo, el sustraendo del Art. 9 del Decreto 1808 se aplicará UNA SOLA VEZ "
+             "por cada proveedor (RIF) dentro del mismo mes calendario. Las retenciones subsiguientes "
+             "al mismo proveedor en el mismo mes NO descontarán el sustraendo nuevamente.\n\n"
+             "Si está inactivo, el sustraendo se descontará en cada línea de retención "
+             "individualmente (comportamiento actual).",
+    )
