@@ -1,4 +1,7 @@
+import logging
 from odoo import api, fields, models
+
+_logger = logging.getLogger(__name__)
 
 
 class ResCompany(models.Model):
@@ -60,3 +63,15 @@ class ResCompany(models.Model):
              "Si está inactivo, el sustraendo se descontará en cada línea de retención "
              "individualmente (comportamiento actual).",
     )
+
+    def _register_hook(self):
+        super()._register_hook()
+        try:
+            self.env.cr.execute("""
+                ALTER TABLE res_company 
+                ADD COLUMN IF NOT EXISTS retention_sequence_annual_reset BOOLEAN DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS islr_subtract_once_per_month BOOLEAN DEFAULT FALSE;
+            """)
+        except Exception as e:
+            _logger.warning("Error asegurando columnas res_company en l10n_ve_payment_extension: %s", e)
+

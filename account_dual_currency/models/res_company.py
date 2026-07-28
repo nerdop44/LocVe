@@ -1,4 +1,7 @@
+import logging
 from odoo import api, fields, models, _, Command
+
+_logger = logging.getLogger(__name__)
 
 class ResCompany(models.Model):
     _inherit = "res.company"
@@ -20,3 +23,14 @@ class ResCompany(models.Model):
         default=False,
         help="Campo técnico. Se activa automáticamente cuando falla la sincronización del BCV.",
     )
+
+    def _register_hook(self):
+        super()._register_hook()
+        try:
+            self.env.cr.execute("""
+                ALTER TABLE res_company 
+                ADD COLUMN IF NOT EXISTS bcv_retry_enabled BOOLEAN DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS bcv_retry_pending BOOLEAN DEFAULT FALSE;
+            """)
+        except Exception as e:
+            _logger.warning("Error asegurando columnas res_company en account_dual_currency: %s", e)

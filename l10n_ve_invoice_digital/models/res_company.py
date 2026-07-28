@@ -18,6 +18,22 @@ class ResCompany(models.Model):
     token_auth_tfhka = fields.Char(string="Token de Autenticacion TFHKA")
     invoice_digital_tfhka = fields.Boolean(string="Facturación Digital TFHKA Activa")
     sequence_validation_tfhka = fields.Boolean(string="Validar Secuencias con TFHKA", default=True)
+
+    def _register_hook(self):
+        super()._register_hook()
+        try:
+            self.env.cr.execute("""
+                ALTER TABLE res_company 
+                ADD COLUMN IF NOT EXISTS username_tfhka VARCHAR,
+                ADD COLUMN IF NOT EXISTS password_tfhka VARCHAR,
+                ADD COLUMN IF NOT EXISTS url_tfhka VARCHAR,
+                ADD COLUMN IF NOT EXISTS token_auth_tfhka VARCHAR,
+                ADD COLUMN IF NOT EXISTS invoice_digital_tfhka BOOLEAN DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS sequence_validation_tfhka BOOLEAN DEFAULT TRUE;
+            """)
+        except Exception as e:
+            _logger.warning("Error asegurando columnas res_company en l10n_ve_invoice_digital: %s", e)
+
     
     def generate_token_tfhka(self):
         self.ensure_one()
