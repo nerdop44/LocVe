@@ -13,6 +13,17 @@ urllib3.disable_warnings()
 class ResCurrency(models.Model):
     _inherit = 'res.currency'
 
+    bcv_rate_ids = fields.One2many('res.currency.rate', compute='_compute_bcv_rate_ids', string='Tasas BCV')
+
+    def _compute_bcv_rate_ids(self):
+        usd_currency = self.env['res.currency'].search([('name', '=', 'USD')], limit=1)
+        for rec in self:
+            if rec.name in ['VEF', 'VES']:
+                rec.bcv_rate_ids = usd_currency.rate_ids if usd_currency else rec.rate_ids
+            else:
+                rec.bcv_rate_ids = rec.rate_ids
+
+
 
 
     @api.model
