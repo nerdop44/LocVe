@@ -42,7 +42,8 @@
             <field name="inherit_id" ref="account_dual_currency.account_move_form_inherit_v23"/>
             <field name="arch" type="xml">
                 <xpath expr="//field[@name='tax_today']" position="attributes">
-                    <attribute name="invisible">1</attribute>
+                    <attribute name="invisible">0</attribute>
+                    <attribute name="readonly">1</attribute>
                 </xpath>
 
                 <xpath expr="//field[@name='tax_today_edited']" position="attributes">
@@ -50,6 +51,7 @@
                 </xpath>
             </field>
         </record>
+
 
         <!-- 5. Hide Preview and Reset to Draft buttons on sale.order and show billing alert -->
         <record id="view_order_form_hide_preview" model="ir.ui.view">

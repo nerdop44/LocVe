@@ -66,33 +66,48 @@ class AccountMoveLine(models.Model):
     @api.onchange('price_unit_usd')
     def _onchange_price_unit_usd(self):
         for rec in self:
-            if rec.move_id.currency_id != rec.company_id.currency_id:
+            rate = rec.move_id.tax_today or rec.move_id.foreign_rate or 1.0
+            if rec.move_id.currency_id and rec.move_id.currency_id.name == 'USD':
                 rec.price_unit = rec.price_unit_usd
             else:
-                rec.price_unit = rec.price_unit_usd * rec.tax_today
-
+                rec.price_unit = rec.price_unit_usd * rate
 
     @api.onchange('product_id')
     def _onchange_product_id(self):
-        #super()._onchange_product_id()
-        self._price_unit_usd()
+        for line in self:
+            if not line.product_id:
+                continue
+            master_usd = line.product_id.list_price_usd or 0.0
+            rate = line.move_id.tax_today or line.move_id.foreign_rate or (line.company_id.currency_id_dif.get_trm_systray() if line.company_id.currency_id_dif else 1.0)
+            
+            if line.move_id.currency_id and line.move_id.currency_id.name == 'USD':
+                line.price_unit = master_usd if master_usd > 0 else line.product_id.list_price
+                line.price_unit_usd = master_usd if master_usd > 0 else line.price_unit
+            else:
+                if master_usd > 0:
+                    line.price_unit = master_usd * rate if rate > 0 else line.product_id.list_price
+                    line.price_unit_usd = master_usd
+                else:
+                    line.price_unit = line.product_id.list_price
+                    line.price_unit_usd = (line.price_unit / rate) if rate > 0 else 0.0
 
     @api.depends('debit_usd', 'credit_usd')
     def _compute_balance_usd(self):
         for line in self:
             line.balance_usd = line.debit_usd - line.credit_usd
 
-
-    @api.depends('price_unit', 'product_id')
+    @api.depends('price_unit', 'product_id', 'move_id.currency_id', 'move_id.tax_today')
     def _price_unit_usd(self):
         for rec in self:
+            rate = rec.move_id.tax_today or rec.move_id.foreign_rate or 1.0
             if rec.price_unit > 0:
-                if rec.move_id.currency_id == self.env.company.currency_id:
-                    rec.price_unit_usd = (rec.price_unit / rec.tax_today) if rec.tax_today > 0 else 0
-                else:
+                if rec.move_id.currency_id and rec.move_id.currency_id.name == 'USD':
                     rec.price_unit_usd = rec.price_unit
+                else:
+                    rec.price_unit_usd = (rec.price_unit / rate) if rate > 0 else 0
             else:
                 rec.price_unit_usd = 0
+
 
             # if rec.price_unit_usd > 0:
             #     if rec.move_id.currency_id == self.env.company.currency_id:

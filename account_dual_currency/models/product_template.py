@@ -19,9 +19,19 @@ class Productos(models.Model):
         for rec in self:
             rec.cost_currency_id = rec.env.company.currency_id.id
 
+    currency_usd_id = fields.Many2one('res.currency', string="Moneda USD", compute='_compute_currencies_strict')
+    currency_bs_id = fields.Many2one('res.currency', string="Moneda Bs", compute='_compute_currencies_strict')
+
+    def _compute_currencies_strict(self):
+        usd = self.env.ref('base.USD', raise_if_not_found=False) or self.env['res.currency'].search([('name', '=', 'USD')], limit=1)
+        vef = self.env.ref('base.VEF', raise_if_not_found=False) or self.env['res.currency'].search([('name', 'in', ('VEF', 'VES'))], limit=1) or self.env.company.currency_id
+        for rec in self:
+            rec.currency_usd_id = usd.id if usd else False
+            rec.currency_bs_id = vef.id if vef else False
 
     list_price_usd = fields.Float(string="Precio en Divisa")
-    standard_price_bs = fields.Monetary(string="Costo en Moneda Local", compute='_compute_standard_price_bs', currency_field='cost_currency_id')
+    standard_price_bs = fields.Monetary(string="Costo en Moneda Local", compute='_compute_standard_price_bs', currency_field='currency_bs_id')
+
     
     #list_price_bs = fields.Monetary(string="Venta en Bs.", compute='_compute_list_price_bs', currency_field='cost_currency_id')
     # Eliminamos list_price_bs para usar list_price nativo como el campo de Bs Pachacutec
@@ -133,7 +143,10 @@ class ProductProduct(models.Model):
     # Campos relacionados para que el cargador del POS los encuentre en product.product
     currency_id_dif = fields.Many2one(related='product_tmpl_id.currency_id_dif', readonly=True)
     cost_currency_id = fields.Many2one(related='product_tmpl_id.cost_currency_id', readonly=True)
+    currency_usd_id = fields.Many2one(related='product_tmpl_id.currency_usd_id', readonly=True)
+    currency_bs_id = fields.Many2one(related='product_tmpl_id.currency_bs_id', readonly=True)
     list_price_usd = fields.Float(related='product_tmpl_id.list_price_usd', readonly=False)
     standard_price_usd = fields.Float(related='product_tmpl_id.standard_price_usd', readonly=False)
-    costo_reposicion_usd = fields.Monetary(related='product_tmpl_id.costo_reposicion_usd', readonly=False, currency_field='currency_id_dif')
-    standard_price_bs = fields.Monetary(related='product_tmpl_id.standard_price_bs', readonly=False, currency_field='cost_currency_id')
+    costo_reposicion_usd = fields.Monetary(related='product_tmpl_id.costo_reposicion_usd', readonly=False, currency_field='currency_usd_id')
+    standard_price_bs = fields.Monetary(related='product_tmpl_id.standard_price_bs', readonly=False, currency_field='currency_bs_id')
+

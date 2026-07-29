@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 {
-    "name": "Venezuela - Facturación Digital TFHKA (LocVe)",
+    "name": "[LocVe] Facturación Digital TFHKA",
+
     "summary": "Integración con API REST de The Factory HKA (TFHKA) para Facturación Digital en Venezuela",
     "description": """
 Localización Venezolana - Módulo de Facturación Digital TFHKA (LocVe)

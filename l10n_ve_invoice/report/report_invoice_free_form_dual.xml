@@ -236,10 +236,9 @@
                              <!-- We'll replicate logic manually to assume control over "Exento", "Subtotal", "IVA", "Total" -->
                              <t t-set="tax_totals" t-value="o.tax_totals"/>
                              <t t-set="raw_subtotals" t-value="tax_totals.get('subtotals', [])"/>
-                             <t t-set="usd_subtotals" t-value="tax_totals.get('subtotals') if o.currency_id == usd_currency else (tax_totals.get('foreign_subtotals') or raw_subtotals)"/>
-                             <t t-set="vef_subtotals" t-value="tax_totals.get('subtotals') if o.currency_id != usd_currency else (tax_totals.get('foreign_subtotals') or raw_subtotals)"/>
+                             <t t-set="usd_subtotals" t-value="raw_subtotals"/>
+                             <t t-set="vef_subtotals" t-value="raw_subtotals"/>
 
-                             
                              <t t-set="amount_untaxed" t-value="o.amount_untaxed"/>
                              <t t-set="amount_tax" t-value="o.amount_tax"/>
                              <t t-set="amount_total" t-value="o.amount_total"/>
@@ -282,7 +281,6 @@
                              </t>
 
                              <!-- IGTF Calculation (Only if Invoice is USD AND Report is NOT VEF) -->
-                             <!-- User request: "el igtf no aplica en forma libre vef" -->
                              <t t-set="igtf_vef" t-value="0"/>
                              <t t-set="igtf_usd" t-value="0"/>
                              <t t-set="has_igtf" t-value="(o.currency_id == usd_currency) and (not is_vef_report)"/>
@@ -307,20 +305,23 @@
                                     <t t-if="usd_subtotals">
                                         <t t-foreach="usd_subtotals" t-as="subtotal">
                                             <t t-foreach="subtotal.get('tax_groups', [])" t-as="amount_by_group">
-                                                <t t-set="grp_base_usd" t-value="amount_by_group.get('base_amount_currency', 0.0) if o.currency_id == usd_currency else (amount_by_group.get('base_amount_currency', 0.0) / rate if rate else 0.0)"/>
-                                                <t t-set="grp_tax_usd" t-value="amount_by_group.get('tax_amount_currency', 0.0) if o.currency_id == usd_currency else (amount_by_group.get('tax_amount_currency', 0.0) / rate if rate else 0.0)"/>
+                                                <t t-set="grp_name" t-value="amount_by_group.get('tax_group_name') or amount_by_group.get('group_name', '')"/>
+                                                <t t-set="raw_base" t-value="amount_by_group.get('tax_group_base_amount', amount_by_group.get('base_amount_currency', 0.0))"/>
+                                                <t t-set="raw_tax" t-value="amount_by_group.get('tax_group_amount', amount_by_group.get('tax_amount_currency', 0.0))"/>
+                                                <t t-set="grp_base_usd" t-value="raw_base if o.currency_id == usd_currency else (raw_base / rate if rate else 0.0)"/>
+                                                <t t-set="grp_tax_usd" t-value="raw_tax if o.currency_id == usd_currency else (raw_tax / rate if rate else 0.0)"/>
                                                 <tr>
-                                                    <td class="text-end"><strong>Base <t t-esc="amount_by_group.get('group_name', '')"/></strong></td>
+                                                    <td class="text-end"><strong>Base <t t-esc="grp_name"/></strong></td>
                                                     <td class="text-end"><span t-esc="grp_base_usd" t-options='{"widget": "monetary", "display_currency": usd_currency}'/></td>
                                                 </tr>
                                                 <tr>
-                                                     <td class="text-end"><strong><t t-esc="amount_by_group.get('group_name', '')"/></strong></td>
+                                                     <td class="text-end"><strong><t t-esc="grp_name"/></strong></td>
                                                      <td class="text-end"><span t-esc="grp_tax_usd" t-options='{"widget": "monetary", "display_currency": usd_currency}'/></td>
                                                 </tr>
                                             </t>
                                         </t>
                                     </t>
-                                    <tr> <!-- Border removed -->
+                                    <tr>
                                         <td class="text-end"><strong>Total</strong></td>
                                         <td class="text-end"><span t-esc="usd_total" t-options='{"widget": "monetary", "display_currency": usd_currency}'/></td>
                                     </tr>
@@ -350,20 +351,23 @@
                                     <t t-if="vef_subtotals">
                                         <t t-foreach="vef_subtotals" t-as="subtotal">
                                             <t t-foreach="subtotal.get('tax_groups', [])" t-as="amount_by_group">
-                                                <t t-set="grp_base_vef" t-value="amount_by_group.get('base_amount_currency', 0.0) if o.currency_id != usd_currency else (amount_by_group.get('base_amount_currency', 0.0) * rate)"/>
-                                                <t t-set="grp_tax_vef" t-value="amount_by_group.get('tax_amount_currency', 0.0) if o.currency_id != usd_currency else (amount_by_group.get('tax_amount_currency', 0.0) * rate)"/>
+                                                <t t-set="grp_name" t-value="amount_by_group.get('tax_group_name') or amount_by_group.get('group_name', '')"/>
+                                                <t t-set="raw_base" t-value="amount_by_group.get('tax_group_base_amount', amount_by_group.get('base_amount_currency', 0.0))"/>
+                                                <t t-set="raw_tax" t-value="amount_by_group.get('tax_group_amount', amount_by_group.get('tax_amount_currency', 0.0))"/>
+                                                <t t-set="grp_base_vef" t-value="raw_base * rate if o.currency_id == usd_currency else raw_base"/>
+                                                <t t-set="grp_tax_vef" t-value="raw_tax * rate if o.currency_id == usd_currency else raw_tax"/>
                                                 <tr>
-                                                    <td class="text-end"><strong>Base <t t-esc="amount_by_group.get('group_name', '')"/></strong></td>
+                                                    <td class="text-end"><strong>Base <t t-esc="grp_name"/></strong></td>
                                                     <td class="text-end"><span t-esc="grp_base_vef" t-options='{"widget": "monetary", "display_currency": vef_currency}'/></td>
                                                 </tr>
                                                 <tr>
-                                                     <td class="text-end"><strong><t t-esc="amount_by_group.get('group_name', '')"/></strong></td>
+                                                     <td class="text-end"><strong><t t-esc="grp_name"/></strong></td>
                                                      <td class="text-end"><span t-esc="grp_tax_vef" t-options='{"widget": "monetary", "display_currency": vef_currency}'/></td>
                                                 </tr>
                                             </t>
                                         </t>
                                     </t>
-                                    <tr> <!-- Border removed -->
+                                    <tr>
                                         <td class="text-end"><strong>Total</strong></td>
                                         <td class="text-end"><span t-esc="vef_total" t-options='{"widget": "monetary", "display_currency": vef_currency}'/></td>
                                     </tr>
@@ -377,6 +381,7 @@
                                     </tr>
                                 </table>
                             </t>
+
 
                             <!-- FIXED COLUMN ORDER: Secondary (Left) | Primary (Right) -->
                             <!-- Requested: 

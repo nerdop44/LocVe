@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 {
-    'name': 'Localización Venezolana - Auditoría Fiscal (SENIAT)',
+    'name': '[LocVe] Auditoría Fiscal (SENIAT)',
+
     'version': '18.0.1.0.0',
     'author': 'Ing. Nerdo Jose Pulido Aguirre',
     'website': 'https://github.com/nerdop44',

@@ -15,19 +15,17 @@
                 <field name="currency_vef_id" invisible="1"/>
             </xpath>
 
-            <!-- Bloque de Tasa: Bajo el Diario (Invisible según requerimiento del usuario) -->
+            <!-- Bloque de Tasa: Bajo el Diario (Visible pero no editable) -->
             <xpath expr="//field[@name='journal_id']" position="after">
-                <label for="tax_today" string="Tasa de creación" invisible="1"/>
-                <div class="d-flex align-items-center gap-2" invisible="1">
-                    <field name="tax_today" nolabel="1" readonly="not tax_today_edited" force_save="1" invisible="1"/>
-                    <span class="text-muted small" invisible="1">Cambio manual</span>
+                <label for="tax_today" string="Tasa de Factura"/>
+                <div class="d-flex align-items-center gap-2">
+                    <field name="tax_today" nolabel="1" readonly="1" force_save="1"/>
                     <field name="tax_today_edited" nolabel="1" widget="boolean_toggle" invisible="1"/>
                 </div>
 
-                <field name="acuerdo_moneda" string="Factura en Bs. Fijo"
-                       invisible="move_type not in ('out_invoice', 'out_refund', 'in_invoice', 'in_refund')"
-                       groups="account.group_account_manager"/>
+                <field name="acuerdo_moneda" string="Factura en Bs. Fijo" invisible="1"/>
             </xpath>
+
 
             <!-- Líneas de Factura: Precio y Subtotal en USD -->
             <xpath expr="//field[@name='invoice_line_ids']/list/field[@name='price_unit']" position="after">

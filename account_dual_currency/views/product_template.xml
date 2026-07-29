@@ -47,6 +47,8 @@
                     <xpath expr="//field[@name='list_price']" position="after">
                         <field name="currency_id_dif" invisible="1"/>
                         <field name="cost_currency_id" invisible="1"/>
+                        <field name="currency_usd_id" invisible="1"/>
+                        <field name="currency_bs_id" invisible="1"/>
                         <field name="uom_name" invisible="1"/>
                     </xpath>
 
@@ -54,7 +56,7 @@
                     <xpath expr="//field[@name='categ_id']" position="before">
                         <label for="list_price_usd" string="Precio Venta ($)"/>
                         <div class="o_row">
-                            <field name="list_price_usd" widget="monetary" options="{'currency_field': 'currency_id_dif'}" class="fw-bold" nolabel="1"/>
+                            <field name="list_price_usd" widget="monetary" options="{'currency_field': 'currency_usd_id'}" class="fw-bold" nolabel="1"/>
                             <span>por</span>
                             <!-- uom_id se añade aquí directamente en lugar de usar move -->
                             <field name="uom_id" nolabel="1" options="{'no_create': True}" class="oe_inline"/>
@@ -64,19 +66,19 @@
                         
                         <label for="list_price" string="Precio Venta (Bs.)"/>
                         <div class="o_row">
-                            <field name="list_price" readonly="1" force_save="1" options="{'currency_field': 'cost_currency_id'}" widget="monetary" class="text-primary" nolabel="1"/>
+                            <field name="list_price" readonly="1" force_save="1" options="{'currency_field': 'currency_bs_id'}" widget="monetary" class="text-primary" nolabel="1"/>
                         </div>
 
                         <!-- taxes_id se añade aquí directamente -->
                         <field name="taxes_id" string="Impuestos de Venta?" widget="many2many_tags" context="{'default_type': 'sale'}"/>
                         
-                        <field name="standard_price" string="Costo ($)?" widget="monetary" options="{'currency_field': 'currency_id_dif'}"/>
-                        <field name="standard_price_bs" string="Costo (Bs.)?" readonly="1" options="{'currency_field': 'cost_currency_id'}" widget="monetary"/>
+                        <field name="standard_price" string="Costo ($)?" widget="monetary" options="{'currency_field': 'currency_usd_id'}"/>
+                        <field name="standard_price_bs" string="Costo (Bs.)?" readonly="1" options="{'currency_field': 'currency_bs_id'}" widget="monetary"/>
                         
                         <!-- supplier_taxes_id se añade aquí directamente -->
                         <field name="supplier_taxes_id" string="Impuestos de compra?" widget="many2many_tags" context="{'default_type': 'purchase'}"/>
                         
-                        <field name="costo_reposicion_usd" string="Costo Reposición ($)?" widget="monetary" options="{'currency_field': 'currency_id_dif'}"/>
+                        <field name="costo_reposicion_usd" string="Costo Reposición ($)?" widget="monetary" options="{'currency_field': 'currency_usd_id'}"/>
                     </xpath>
             </field>
         </record>
@@ -87,12 +89,12 @@
             <field name="inherit_id" ref="product.product_template_tree_view"/>
             <field name="arch" type="xml">
                  <xpath expr="//field[@name='list_price']" position="after">
-                    <field name="cost_currency_id" invisible="1"/>
-                    <field name="list_price_usd" widget="monetary" options="{'currency_field': 'cost_currency_id'}" />
+                    <field name="currency_usd_id" invisible="1"/>
+                    <field name="list_price_usd" widget="monetary" options="{'currency_field': 'currency_usd_id'}" />
                  </xpath>
                 <xpath expr="//field[@name='standard_price']" position="after">
-                    <field name="currency_id_dif" invisible="1"/>
-                    <field name="standard_price_bs" options="{'currency_field': 'cost_currency_id'}" />
+                    <field name="currency_bs_id" invisible="1"/>
+                    <field name="standard_price_bs" options="{'currency_field': 'currency_bs_id'}" />
                  </xpath>
             </field>
         </record>
@@ -103,9 +105,8 @@
             <field name="inherit_id" ref="account.product_template_view_tree"/>
             <field name="arch" type="xml">
                  <xpath expr="//field[@name='list_price']" position="after">
-                     <field name="currency_id_dif" invisible="1"/>
-                     <field name="cost_currency_id" invisible="1"/>
-                    <field name="list_price_usd" widget="monetary" options="{'currency_field': 'cost_currency_id'}" />
+                     <field name="currency_usd_id" invisible="1"/>
+                     <field name="list_price_usd" widget="monetary" options="{'currency_field': 'currency_usd_id'}" />
                  </xpath>
             </field>
         </record>
@@ -116,12 +117,12 @@
             <field name="inherit_id" ref="product.product_product_tree_view"/>
             <field name="arch" type="xml">
                  <xpath expr="//field[@name='lst_price']" position="after">
-                    <field name="cost_currency_id" invisible="1"/>
-                    <field name="list_price_usd" widget="monetary" options="{'currency_field': 'cost_currency_id'}" />
+                    <field name="currency_usd_id" invisible="1"/>
+                    <field name="list_price_usd" widget="monetary" options="{'currency_field': 'currency_usd_id'}" />
                  </xpath>
                 <xpath expr="//field[@name='standard_price']" position="after">
-                    <field name="currency_id_dif" invisible="1"/>
-                    <field name="standard_price_bs" options="{'currency_field': 'cost_currency_id'}" />
+                    <field name="currency_bs_id" invisible="1"/>
+                    <field name="standard_price_bs" options="{'currency_field': 'currency_bs_id'}" />
                  </xpath>
             </field>
         </record>
@@ -133,15 +134,16 @@
             <field name="arch" type="xml">
                  <xpath expr="//kanban" position="inside">
                     <field name="list_price_usd"/>
-                     <field name="currency_id_dif" invisible="1"/>
+                     <field name="currency_usd_id" invisible="1"/>
                 </xpath>
                 <xpath expr="//field[@name='list_price']/.." position="after">
                     <div name="product_lst_price_usd" class="mt-1" style="color: red;">
-                        <field name="cost_currency_id" invisible="1"/>
-                        Precio Alt.: <field name="list_price_usd" widget="monetary" options="{'currency_field': 'cost_currency_id'}"/>
+                        <field name="currency_usd_id" invisible="1"/>
+                        Precio Alt.: <field name="list_price_usd" widget="monetary" options="{'currency_field': 'currency_usd_id'}"/>
                     </div>
                 </xpath>
             </field>
         </record>
+
 
 </odoo>

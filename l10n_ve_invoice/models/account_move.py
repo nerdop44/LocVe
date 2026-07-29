@@ -47,6 +47,16 @@ class AccountMove(models.Model):
             else:
                 move.l10n_ve_is_fully_refunded = False
 
+    @api.constrains('invoice_line_ids', 'invoice_line_ids.price_unit')
+    def _check_move_line_price_unit_positive(self):
+        for move in self:
+            if move.move_type in ('out_invoice', 'out_refund', 'in_invoice', 'in_refund'):
+                for line in move.invoice_line_ids.filtered(lambda l: not l.display_type):
+                    if line.price_unit <= 0.0:
+                        name = line.name or (line.product_id and line.product_id.display_name) or 'Línea de producto'
+                        raise ValidationError(_("No se puede guardar una factura/documento con precio unitario en 0.0 o negativo en la línea '%s'. Ingrese un precio mayor a 0.") % name)
+
+
 
 #    # INICIO DE LAS MODIFICACIONES SUGERIDAS PARA RELACIONAR CON account.retention.line
 #    retention_iva_line_ids = fields.One2many(
