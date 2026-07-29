@@ -13,6 +13,17 @@ urllib3.disable_warnings()
 class ResCurrency(models.Model):
     _inherit = 'res.currency'
 
+    bcv_rate_ids = fields.One2many('res.currency.rate', compute='_compute_bcv_rate_ids', string='Tasas BCV')
+
+    def _compute_bcv_rate_ids(self):
+        usd_currency = self.env['res.currency'].search([('name', '=', 'USD')], limit=1)
+        for rec in self:
+            if rec.name in ['VEF', 'VES']:
+                rec.bcv_rate_ids = usd_currency.rate_ids if usd_currency else rec.rate_ids
+            else:
+                rec.bcv_rate_ids = rec.rate_ids
+
+
     @api.model
     def _normalize_to_company_recordset(self, data):
         """ Helper to force any input into a res.company recordset. """
@@ -367,22 +378,8 @@ class ResCurrency(models.Model):
                             })
                             nueva = True
 
-                    # Crear/sincronizar registro de tasa en moneda local (VEF/VES) para poblar la vista en pantalla
-                    if c.currency_id and c.currency_id.id != rec.id:
-                        tasa_local = self.env['res.currency.rate'].sudo().search(
-                            [('name', '=', fecha_bcv), ('currency_id', '=', c.currency_id.id), ('company_id', '=', c.id)], limit=1)
-                        if not tasa_local:
-                            self.env['res.currency.rate'].sudo().with_context({orig_ctx: True}).create({
-                                'currency_id': c.currency_id.id,
-                                'name': fecha_bcv,
-                                'rate': odoo_rate,
-                                'company_id': c.id,
-                            })
-                        elif abs(tasa_local.rate - odoo_rate) > 0.000001:
-                            tasa_local.sudo().with_context({orig_ctx: True}).write({'rate': odoo_rate})
-
-
                     if nueva:
+
                         channel_id.message_post(
                             body="Tasa de cambio actualizada para %s (%s): %s (en %s), BCV a las %s." % (
                                 rec.name, c.name, odoo_rate, c.currency_id.name,
@@ -520,25 +517,8 @@ class ResCurrency(models.Model):
                             })
                             nueva = True
 
-                    # Espejamiento a la moneda local de la compañía (VEF/VES) para visibilidad en pantalla
-                    if c.currency_id and c.currency_id.id != rec.id:
-                        tasa_local = self.env['res.currency.rate'].sudo().search([
-                            ('name', '=', d),
-                            ('currency_id', '=', c.currency_id.id),
-                            ('company_id', '=', c.id)
-                        ], limit=1)
-                        if not tasa_local:
-                            self.env['res.currency.rate'].sudo().with_context(ctx).create({
-                                'currency_id': c.currency_id.id,
-                                'name': d,
-                                'rate': odoo_rate,
-                                'company_id': c.id,
-                            })
-                        elif abs(tasa_local.rate - odoo_rate) > 0.000001:
-                            tasa_local.sudo().with_context(ctx).write({'rate': odoo_rate})
-
-                            
                     if nueva:
+
                         channel_id.message_post(
                             body="Tasa HISTÓRICA recuperada para %s (%s): %s para la fecha %s." % (
                                 rec.name, c.name, odoo_rate, d.strftime("%d-%m-%Y")),
