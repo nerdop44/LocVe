@@ -367,6 +367,21 @@ class ResCurrency(models.Model):
                             })
                             nueva = True
 
+                    # Crear/sincronizar registro de tasa en moneda local (VEF/VES) para poblar la vista en pantalla
+                    if c.currency_id and c.currency_id.id != rec.id:
+                        tasa_local = self.env['res.currency.rate'].sudo().search(
+                            [('name', '=', fecha_bcv), ('currency_id', '=', c.currency_id.id), ('company_id', '=', c.id)], limit=1)
+                        if not tasa_local:
+                            self.env['res.currency.rate'].sudo().with_context({orig_ctx: True}).create({
+                                'currency_id': c.currency_id.id,
+                                'name': fecha_bcv,
+                                'rate': odoo_rate,
+                                'company_id': c.id,
+                            })
+                        elif abs(tasa_local.rate - odoo_rate) > 0.000001:
+                            tasa_local.sudo().with_context({orig_ctx: True}).write({'rate': odoo_rate})
+
+
                     if nueva:
                         channel_id.message_post(
                             body="Tasa de cambio actualizada para %s (%s): %s (en %s), BCV a las %s." % (
@@ -403,8 +418,15 @@ class ResCurrency(models.Model):
 
     def recuperar_tasas_historicas(self):
         for rec in self:
+            if rec.name in ['VES', 'VEF']:
+                monedas_ext = self.env['res.currency'].search([('name', 'in', ['USD', 'EUR']), ('active', '=', True)])
+                for m in monedas_ext.with_context(self.env.context):
+                    m.recuperar_tasas_historicas()
+                continue
+
             if rec.name not in ['USD', 'EUR']:
                 continue
+
                 
             today = fields.Date.context_today(self)
             company_ids = self.env['res.company'].search([])
@@ -497,6 +519,24 @@ class ResCurrency(models.Model):
                                 'rate': odoo_rate
                             })
                             nueva = True
+
+                    # Espejamiento a la moneda local de la compañía (VEF/VES) para visibilidad en pantalla
+                    if c.currency_id and c.currency_id.id != rec.id:
+                        tasa_local = self.env['res.currency.rate'].sudo().search([
+                            ('name', '=', d),
+                            ('currency_id', '=', c.currency_id.id),
+                            ('company_id', '=', c.id)
+                        ], limit=1)
+                        if not tasa_local:
+                            self.env['res.currency.rate'].sudo().with_context(ctx).create({
+                                'currency_id': c.currency_id.id,
+                                'name': d,
+                                'rate': odoo_rate,
+                                'company_id': c.id,
+                            })
+                        elif abs(tasa_local.rate - odoo_rate) > 0.000001:
+                            tasa_local.sudo().with_context(ctx).write({'rate': odoo_rate})
+
                             
                     if nueva:
                         channel_id.message_post(

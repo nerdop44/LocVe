@@ -1054,11 +1054,8 @@ class AccountMove(models.Model):
                 currency_dif = rec.company_id.currency_id_dif
                 if not currency_dif:
                     continue
-                # Si la moneda de la factura es la misma que la moneda de referencia, tasa = 1
-                move_currency = vals.get('currency_id') or rec.currency_id.id
-                if move_currency and move_currency == currency_dif.id:
-                    vals['tax_today'] = 1.0
-                    break
+                # Obtener la tasa BCV correspondiente a la fecha de la factura
+
                 try:
                     rate_ids = currency_dif._get_rates(rec.company_id, new_date)
                 except Exception:
@@ -1066,43 +1063,42 @@ class AccountMove(models.Model):
                 if rate_ids and currency_dif.id in rate_ids and rate_ids[currency_dif.id] > 0:
                     db_rate = rate_ids[currency_dif.id]
                 else:
-                    db_rate = currency_dif.inverse_rate or 0.0
+                    db_rate = currency_dif.get_trm_systray()
                 
                 if 0.0 < db_rate < 1.0:
                     new_rate = 1.0 / db_rate
                 else:
                     new_rate = db_rate
                 
-                if new_rate > 0:
+                if new_rate > 1.0:
                     vals['tax_today'] = new_rate
-                break  # Aplicar solo una vez (todos los records del recordset comparten los mismos vals)
+                break  # Aplicar solo una vez
 
         # Sincronizar tasas en el diccionario de valores antes de escribir
         tax_today = vals.get('tax_today')
         foreign_rate = vals.get('foreign_rate')
         foreign_inverse_rate = vals.get('foreign_inverse_rate')
 
-        if tax_today is not None and tax_today > 0:
+        if tax_today is not None and tax_today > 1.0:
             vals['foreign_rate'] = tax_today
-            if self.env.company.currency_id.name == 'USD':
-                vals['foreign_inverse_rate'] = tax_today
-            else:
-                vals['foreign_inverse_rate'] = 1.0 / tax_today
-        elif foreign_rate is not None and foreign_rate > 0:
+            vals['foreign_inverse_rate'] = tax_today if self.env.company.currency_id.name == 'USD' else (1.0 / tax_today if tax_today > 0 else 1.0)
+        elif foreign_rate is not None and foreign_rate > 1.0:
             vals['tax_today'] = foreign_rate
-            if self.env.company.currency_id.name == 'USD':
-                vals['foreign_inverse_rate'] = foreign_rate
-            else:
-                vals['foreign_inverse_rate'] = 1.0 / foreign_rate
-        elif foreign_inverse_rate is not None and foreign_inverse_rate > 0:
-            if self.env.company.currency_id.name == 'USD':
-                vals['tax_today'] = foreign_inverse_rate
-                vals['foreign_rate'] = foreign_inverse_rate
-            else:
-                vals['tax_today'] = 1.0 / foreign_inverse_rate
-                vals['foreign_rate'] = 1.0 / foreign_inverse_rate
+            vals['foreign_inverse_rate'] = foreign_rate if self.env.company.currency_id.name == 'USD' else (1.0 / foreign_rate if foreign_rate > 0 else 1.0)
+        elif foreign_inverse_rate is not None and foreign_inverse_rate > 1.0:
+            vals['tax_today'] = foreign_inverse_rate
+            vals['foreign_rate'] = foreign_inverse_rate
+        else:
+            # Si vals incluye un 1.0 ficticio enviado por Odoo nativo, removerlo para no sobreescribir la tasa de la factura
+            if tax_today is not None and tax_today <= 1.0:
+                vals.pop('tax_today', None)
+            if foreign_rate is not None and foreign_rate <= 1.0:
+                vals.pop('foreign_rate', None)
+            if foreign_inverse_rate is not None and foreign_inverse_rate <= 1.0:
+                vals.pop('foreign_inverse_rate', None)
 
         return super(AccountMove, self).write(vals)
+
 
     @api.onchange('invoice_date', 'date')
     def _onchange_invoice_date_or_date(self):
