@@ -12,8 +12,4 @@ def migrate(cr, version):
         SET list_price = 10.0, list_price_usd = 10.0 
         WHERE list_price >= 1000 OR list_price_usd >= 1000;
     """)
-    cr.execute("""
-        UPDATE product_product 
-        SET lst_price = 10.0 
-        WHERE lst_price >= 1000;
-    """)
+
