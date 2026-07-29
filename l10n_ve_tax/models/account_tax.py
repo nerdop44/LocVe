@@ -206,8 +206,8 @@ class AccountTax(models.Model):
         is_invoice_in_usd = currency.name == 'USD'
         if move:
             rates_to_check = [
-                getattr(move, 'foreign_rate', 0.0) or 0.0,
                 getattr(move, 'tax_today', 0.0) or 0.0,
+                getattr(move, 'foreign_rate', 0.0) or 0.0,
                 getattr(move, 'foreign_inverse_rate', 0.0) or 0.0,
             ]
             for r in rates_to_check:
@@ -216,9 +216,12 @@ class AccountTax(models.Model):
                     break
             else:
                 for r in rates_to_check:
-                    if r > 0.0:
+                    if r > 0.0 and r != 1.0:
                         rate = 1.0 / r if r < 1.0 else r
                         break
+            if rate <= 1.0:
+                rate = company.currency_id_dif.get_trm_systray() if getattr(company, 'currency_id_dif', False) else 1.0
+
         elif order:
             rates_to_check = [
                 getattr(order, 'krill_tasa_valor', 0.0) or 0.0,

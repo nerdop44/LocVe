@@ -15,12 +15,13 @@
                 <field name="currency_vef_id" invisible="1"/>
             </xpath>
 
-            <!-- Bloque de Tasa: Debajo de Fecha de Vencimiento / Diario en la parte derecha de la vista -->
-            <xpath expr="//field[@name='invoice_date_due']" position="after">
+            <!-- Bloque de Tasa: En el grupo derecho del encabezado de la factura -->
+            <xpath expr="//group[@id='header_right_group']" position="inside">
                 <field name="tax_today" string="Tasa de Factura" readonly="1" force_save="1"/>
                 <field name="tax_today_edited" invisible="1"/>
                 <field name="acuerdo_moneda" invisible="1"/>
             </xpath>
+
 
 
 

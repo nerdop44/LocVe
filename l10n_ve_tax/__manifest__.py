@@ -6,7 +6,8 @@
     'author': 'Ing. Nerdo Jose Pulido Aguirre',
     'website': 'https://github.com/nerdop44',
     'category': 'Accounting/Localizations/Account Chart',
-    'version': '18.0.2.0.1',
+    'version': '18.0.2.0.2',
+
 
     'depends': ['base', 'account', 'l10n_ve_rate'],
     'data': ['views/res_config_settings.xml', 'views/account_move.xml'],
