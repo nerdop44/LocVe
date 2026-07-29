@@ -2,7 +2,8 @@
 {
     'name': '[LocVe] Facturación Venezuela',
     'summary': 'Módulo de facturación venezolana conforme al SENIAT para la suite LocVe.',
-    'version': '18.0.2.0.1',
+    'version': '18.0.2.0.3',
+
 
     'license': 'LGPL-3',
     'author': 'Ing. Nerdo Jose Pulido Aguirre',

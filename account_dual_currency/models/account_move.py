@@ -171,28 +171,26 @@ class AccountMove(models.Model):
     @api.depends('invoice_date', 'date', 'company_id')
     def _compute_tax_today(self):
         for rec in self:
-            if rec.tax_today_edited and rec.tax_today > 0.0:
+            if rec.tax_today_edited and rec.tax_today > 1.0:
                 continue
             company = rec.company_id or rec.env.company
             currency_dif = company.currency_id_dif
-            if not currency_dif:
-                rec.tax_today = 1.0
-                continue
-            
-            date_to_use = rec.invoice_date or rec.date or fields.Date.context_today(rec)
             rate_val = 0.0
-            new_rate_ids = currency_dif._get_rates(company, date_to_use)
-            if new_rate_ids and currency_dif.id in new_rate_ids:
-                r = new_rate_ids[currency_dif.id]
-                if r > 0:
-                    rate_val = (1.0 / r) if r < 1.0 else r
+            if currency_dif:
+                date_to_use = rec.invoice_date or rec.date or fields.Date.context_today(rec)
+                new_rate_ids = currency_dif._get_rates(company, date_to_use)
+                if new_rate_ids and currency_dif.id in new_rate_ids:
+                    r = new_rate_ids[currency_dif.id]
+                    if r > 0:
+                        rate_val = (1.0 / r) if r < 1.0 else r
+                if rate_val <= 1.0:
+                    rate_val = currency_dif.get_trm_systray()
             
-            if rate_val <= 0.0:
-                systray_rate = currency_dif.get_trm_systray()
-                if systray_rate and systray_rate > 0:
-                    rate_val = systray_rate
+            if rate_val <= 1.0:
+                rate_val = company.currency_id_dif.get_trm_systray() if getattr(company, 'currency_id_dif', False) else 1.0
             
-            rec.tax_today = rate_val if rate_val > 0 else 1.0
+            rec.tax_today = rate_val if rate_val > 1.0 else 1.0
+
 
     @api.depends('invoice_date', 'date', 'company_id')
     def _compute_date(self):

@@ -19,9 +19,7 @@
             <field name="inherit_id" ref="product.product_template_form_view"/>
             <field name="arch" type="xml">
                     <!-- Ocultar Elementos Nativo y Ruido Visual Pachacutec -->
-                    <xpath expr="//field[@name='list_price']" position="attributes">
-                        <attribute name="invisible">1</attribute>
-                    </xpath>
+
                     <xpath expr="//field[@name='standard_price']" position="attributes">
                         <attribute name="invisible">1</attribute>
                     </xpath>
@@ -64,10 +62,11 @@
 
                         <field name="price_with_tax_info" string="Impuestos Incl.?" readonly="1" class="text-info small"/>
                         
-                        <label for="list_price" string="Precio Venta (Bs.)"/>
+                        <label for="list_price_bs" string="Precio Venta (Bs.)"/>
                         <div class="o_row">
-                            <field name="list_price" readonly="1" force_save="1" options="{'currency_field': 'currency_bs_id'}" widget="monetary" class="text-primary" nolabel="1"/>
+                            <field name="list_price_bs" readonly="1" force_save="1" options="{'currency_field': 'currency_bs_id'}" widget="monetary" class="text-primary" nolabel="1"/>
                         </div>
+
 
                         <!-- taxes_id se añade aquí directamente -->
                         <field name="taxes_id" string="Impuestos de Venta?" widget="many2many_tags" context="{'default_type': 'sale'}"/>

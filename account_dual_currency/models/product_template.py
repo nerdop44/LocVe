@@ -29,45 +29,38 @@ class Productos(models.Model):
             rec.currency_usd_id = usd.id if usd else False
             rec.currency_bs_id = vef.id if vef else False
 
-    list_price_usd = fields.Float(string="Precio en Divisa")
+    list_price_usd = fields.Float(string="Precio Venta ($)", default=1.0)
     standard_price_bs = fields.Monetary(string="Costo en Moneda Local", compute='_compute_standard_price_bs', currency_field='currency_bs_id')
 
-    
-    #list_price_bs = fields.Monetary(string="Venta en Bs.", compute='_compute_list_price_bs', currency_field='cost_currency_id')
-    # Eliminamos list_price_bs para usar list_price nativo como el campo de Bs Pachacutec
-    
     # Campo para compatibilidad con otros módulos, refleja el costo maestro (USD)
     standard_price_usd = fields.Float(string="Costo en Divisa", compute='_compute_standard_price_compat')
     
-    list_price = fields.Float(
-        'Precio Venta (Bs.)', default=1.0,
-        digits='Product Price',
-        help="Precio de venta en Bolívares, calculado automáticamente desde el Dólar Maestro.",
-        compute='_compute_list_price', store=True, readonly=False
+    list_price_bs = fields.Monetary(
+        string='Precio Venta (Bs.)',
+        currency_field='currency_bs_id',
+        compute='_compute_list_price_bs', store=True, readonly=False
     )
     price_with_tax_info = fields.Char(compute='_compute_price_with_tax_info')
     price_with_tax_bs = fields.Char(compute='_compute_price_with_tax_bs')
 
-    @api.depends('list_price_usd', 'taxes_id')
-    def _compute_list_price(self):
+    @api.depends('list_price', 'list_price_usd', 'currency_id_dif')
+    def _compute_list_price_bs(self):
         for rec in self:
             company = rec.env.company
             tasa = company.currency_id_dif.get_trm_systray() if company.currency_id_dif else 0.0
-            price_ex_tax = rec.list_price_usd * tasa if tasa > 0 else 0.0
-            
-            # El usuario solicitó que list_price sea list_price_usd * tasa (Base Imponible)
-            # Pachacutec: v18.0.1.0.87 - Usamos total_excluded para evitar doble IVA en POS
-            if rec.taxes_id:
-                res = rec.taxes_id.compute_all(price_ex_tax, quantity=1, product=rec)
-                rec.list_price = res['total_excluded']
-            else:
-                rec.list_price = price_ex_tax
+            base_usd = rec.list_price_usd or rec.list_price or 0.0
+            rec.list_price_bs = base_usd * tasa if tasa > 0 else 0.0
 
-    @api.depends('list_price')
-    def _compute_list_price_bs(self):
-        # Mantenemos por compatibilidad de vistas si es necesario, pero apuntando a list_price
-        for rec in self:
-            rec.list_price_bs = rec.list_price
+    @api.onchange('list_price_usd')
+    def _onchange_list_price_usd_sync(self):
+        if self.list_price_usd and self.list_price_usd != self.list_price:
+            self.list_price = self.list_price_usd
+
+    @api.onchange('list_price')
+    def _onchange_list_price_sync(self):
+        if self.list_price and self.list_price != self.list_price_usd:
+            self.list_price_usd = self.list_price
+
 
     @api.depends('standard_price', 'currency_id_dif')
     def _compute_standard_price_bs(self):
