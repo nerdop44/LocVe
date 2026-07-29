@@ -16,7 +16,8 @@ Adaptado para Odoo 18 con arquitectura unificada LocVe.
     "author": "Remake ING. Nerdo José Pulido Aguirre",
     "website": "https://github.com/nerdop44/LocVe",
     "category": "Accounting/Localizations",
-    "version": "18.0.1.0.0",
+    "version": "18.0.1.0.1",
+
     "depends": [
         "base",
         "account",

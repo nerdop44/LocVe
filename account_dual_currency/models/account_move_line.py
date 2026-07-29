@@ -83,17 +83,22 @@ class AccountMoveLine(models.Model):
             rate = line.move_id.tax_today or line.move_id.foreign_rate or (line.company_id.currency_id_dif.get_trm_systray() if line.company_id.currency_id_dif else 1.0)
             
             if line.move_id.currency_id and line.move_id.currency_id.name == 'USD':
-                if master_usd > 0:
+                if master_usd > 0 and master_usd < 1000:
                     line.price_unit = master_usd
                 elif list_price_bs > 0 and rate > 0:
                     line.price_unit = list_price_bs / rate
+                elif master_usd >= 1000 and rate > 0:
+                    line.price_unit = master_usd / rate
+                else:
+                    line.price_unit = master_usd
                 line.price_unit_usd = line.price_unit
             else:
-                if master_usd > 0 and rate > 0:
+                if master_usd > 0 and master_usd < 1000 and rate > 0:
                     line.price_unit = master_usd * rate
                 else:
                     line.price_unit = list_price_bs
                 line.price_unit_usd = (line.price_unit / rate) if rate > 0 else 0.0
+
 
     @api.onchange('product_id')
     def _onchange_product_id(self):

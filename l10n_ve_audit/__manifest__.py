@@ -2,7 +2,8 @@
 {
     'name': '[LocVe] Auditoría Fiscal (SENIAT)',
 
-    'version': '18.0.1.0.0',
+    'version': '18.0.1.0.1',
+
     'author': 'Ing. Nerdo Jose Pulido Aguirre',
     'website': 'https://github.com/nerdop44',
     'category': 'Accounting/Localizations/Account Chart',

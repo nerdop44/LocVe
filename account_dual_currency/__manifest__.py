@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 {
     'name': '[LocVe] Doble Moneda Venezuela',
-    'version': '18.0.2.0.0',
+    'version': '18.0.2.0.1',
+
     'category': 'LocVe [Localization]',
     'license': 'Other proprietary',
     'summary': 'Módulo de doble moneda para la Localización Venezolana LocVe.',
