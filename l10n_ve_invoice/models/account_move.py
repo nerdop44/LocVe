@@ -26,6 +26,26 @@ class AccountMove(models.Model):
     l10n_ve_is_free_form = fields.Boolean(related="journal_id.l10n_ve_is_free_form", string="Is Free Form Journal", readonly=True)
 
     next_installment_date = fields.Date(compute="_compute_next_installment_date")
+    l10n_ve_is_fully_refunded = fields.Boolean(
+        string="Factura Totalmente Revertida",
+        compute="_compute_l10n_ve_is_fully_refunded",
+        store=True,
+    )
+
+    @api.depends('state', 'amount_total', 'reversal_move_id.state', 'reversal_move_id.amount_total')
+    def _compute_l10n_ve_is_fully_refunded(self):
+        for move in self:
+            if move.move_type in ('out_invoice', 'in_invoice') and move.state == 'posted':
+                refunds = self.search([
+                    ('reversed_entry_id', '=', move.id),
+                    ('state', 'in', ('posted', 'draft')),
+                    ('move_type', 'in', ('out_refund', 'in_refund'))
+                ])
+                total_refunded = sum(refunds.mapped('amount_total'))
+                move.l10n_ve_is_fully_refunded = bool(move.amount_total > 0 and total_refunded >= (move.amount_total - 0.01))
+            else:
+                move.l10n_ve_is_fully_refunded = False
+
 
 #    # INICIO DE LAS MODIFICACIONES SUGERIDAS PARA RELACIONAR CON account.retention.line
 #    retention_iva_line_ids = fields.One2many(
@@ -351,6 +371,64 @@ class AccountMove(models.Model):
                                 "No se permite modificar los impuestos en una Nota de Crédito sobre Forma Libre. "
                                 "Debe mantener la alícuota fiscal histórica de la factura original."
                             ))
+
+    @api.constrains('invoice_line_ids', 'invoice_line_ids.price_unit', 'invoice_line_ids.quantity', 'reversed_entry_id')
+    def _check_refund_amounts_and_quantities(self):
+        for move in self:
+            if move.move_type in ('out_refund', 'in_refund') and move.reversed_entry_id:
+                orig_move = move.reversed_entry_id
+                
+                # 1. Total del reembolso no puede superar el monto de la factura origen
+                other_refunds = self.search([
+                    ('reversed_entry_id', '=', orig_move.id),
+                    ('id', '!=', move.id),
+                    ('state', '!=', 'cancel'),
+                    ('move_type', 'in', ('out_refund', 'in_refund'))
+                ])
+                refunded_so_far = sum(other_refunds.mapped('amount_total'))
+                if (refunded_so_far + move.amount_total) > (orig_move.amount_total + 0.01):
+                    raise ValidationError(_(
+                        "El monto total de la Nota de Crédito (%.2f) excede el monto remanente disponible de la Factura Origen %s (Monto Factura: %.2f, Revertido Previamente: %.2f)."
+                    ) % (move.amount_total, orig_move.name, orig_move.amount_total, refunded_so_far))
+
+                # 2. Validación por línea: precio unitario y cantidad no pueden ser mayores al origen
+                orig_lines_by_prod = {}
+                for line in orig_move.invoice_line_ids:
+                    if not line.display_type and line.product_id:
+                        if line.product_id.id not in orig_lines_by_prod:
+                            orig_lines_by_prod[line.product_id.id] = []
+                        orig_lines_by_prod[line.product_id.id].append(line)
+
+                for line in move.invoice_line_ids:
+                    if not line.display_type and line.product_id:
+                        matching_orig = orig_lines_by_prod.get(line.product_id.id)
+                        if matching_orig:
+                            max_orig_price = max(l.price_unit for l in matching_orig)
+                            total_orig_qty = sum(l.quantity for l in matching_orig)
+                            
+                            if line.price_unit > (max_orig_price + 0.0001):
+                                raise ValidationError(_(
+                                    "No se puede aumentar el precio unitario del producto '%s' en la Nota de Crédito (%.2f). "
+                                    "El precio máximo de la factura original es %.2f."
+                                ) % (line.product_id.name, line.price_unit, max_orig_price))
+                            
+                            other_refund_lines = self.env['account.move.line'].search([
+                                ('move_id', 'in', other_refunds.ids),
+                                ('product_id', '=', line.product_id.id),
+                                ('display_type', '=', False)
+                            ])
+                            qty_refunded_so_far = sum(other_refund_lines.mapped('quantity'))
+                            if (qty_refunded_so_far + line.quantity) > (total_orig_qty + 0.0001):
+                                raise ValidationError(_(
+                                    "La cantidad del producto '%s' en la Nota de Crédito (%.2f + %.2f previas) excede la cantidad de la factura original (%.2f)."
+                                ) % (line.product_id.name, line.quantity, qty_refunded_so_far, total_orig_qty))
+
+    def action_reverse(self):
+        for move in self:
+            if move.l10n_ve_is_fully_refunded:
+                raise ValidationError(_("La factura %s ya ha sido revertida por completo y no se puede generar otra Nota de Crédito.") % move.name)
+        return super().action_reverse()
+
 
     def action_open_void_control_wizard(self):
         self.ensure_one()

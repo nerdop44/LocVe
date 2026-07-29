@@ -46,11 +46,14 @@ class PurchaseOrderLine(models.Model):
         for line in self:
             if not line.display_type:
                 if line.price_unit <= 0.0:
-                    raise ValidationError(_("El precio unitario del producto '%s' debe ser mayor a cero.") % line.product_id.name)
+                    line_name = line.name or (line.product_id and line.product_id.name) or 'Línea'
+                    raise ValidationError(_("El precio unitario de la línea '%s' debe ser mayor a cero.") % line_name)
 
     @api.constrains('taxes_id')
     def _check_single_tax(self):
         for line in self:
             if not line.display_type and len(line.taxes_id) > 1:
-                raise ValidationError(_("No se permite aplicar más de una alícuota de impuesto al producto '%s'.") % line.product_id.name)
+                line_name = line.name or (line.product_id and line.product_id.name) or 'Línea'
+                raise ValidationError(_("No se permite aplicar más de una alícuota de impuesto a la línea '%s'. Para cambiar la alícuota, primero debe remover la anterior.") % line_name)
+
 

@@ -72,7 +72,8 @@
                     <t t-set="vef_currency" t-value="o.env.ref('base.VEF', raise_if_not_found=False) or o.env.ref('base.VES', raise_if_not_found=False) or o.env['res.currency'].search([('name', 'in', ['VEF', 'VES', 'Bs.'])], limit=1) or o.company_id.currency_id"/>
                     <t t-set="usd_currency" t-value="o.env.ref('base.USD', raise_if_not_found=False) or o.env['res.currency'].search([('name', '=', 'USD')], limit=1)"/>
                     
-                    <t t-set="rate" t-value="o.foreign_rate or 1.0"/>
+                    <t t-set="rate" t-value="o.foreign_rate if (o.foreign_rate and o.foreign_rate > 1.0) else (o.tax_today if (o.tax_today and o.tax_today > 1.0) else 1.0)"/>
+
                     
                     <!-- Report Currency with fallback to Company Currency to avoid Singleton Error -->
                     <t t-set="current_currency" t-value="(vef_currency if is_vef_report else usd_currency) or o.company_id.currency_id"/>
@@ -234,8 +235,10 @@
                              <!-- Calculation of Totals for BOTH currencies using tax_totals or Tax Groups -->
                              <!-- We'll replicate logic manually to assume control over "Exento", "Subtotal", "IVA", "Total" -->
                              <t t-set="tax_totals" t-value="o.tax_totals"/>
-                             <t t-set="usd_subtotals" t-value="tax_totals.get('subtotals') if o.currency_id == usd_currency else tax_totals.get('foreign_subtotals', [])"/>
-                             <t t-set="vef_subtotals" t-value="tax_totals.get('subtotals') if o.currency_id != usd_currency else tax_totals.get('foreign_subtotals', [])"/>
+                             <t t-set="raw_subtotals" t-value="tax_totals.get('subtotals', [])"/>
+                             <t t-set="usd_subtotals" t-value="tax_totals.get('subtotals') if o.currency_id == usd_currency else (tax_totals.get('foreign_subtotals') or raw_subtotals)"/>
+                             <t t-set="vef_subtotals" t-value="tax_totals.get('subtotals') if o.currency_id != usd_currency else (tax_totals.get('foreign_subtotals') or raw_subtotals)"/>
+
                              
                              <t t-set="amount_untaxed" t-value="o.amount_untaxed"/>
                              <t t-set="amount_tax" t-value="o.amount_tax"/>
@@ -304,13 +307,15 @@
                                     <t t-if="usd_subtotals">
                                         <t t-foreach="usd_subtotals" t-as="subtotal">
                                             <t t-foreach="subtotal.get('tax_groups', [])" t-as="amount_by_group">
+                                                <t t-set="grp_base_usd" t-value="amount_by_group.get('base_amount_currency', 0.0) if o.currency_id == usd_currency else (amount_by_group.get('base_amount_currency', 0.0) / rate if rate else 0.0)"/>
+                                                <t t-set="grp_tax_usd" t-value="amount_by_group.get('tax_amount_currency', 0.0) if o.currency_id == usd_currency else (amount_by_group.get('tax_amount_currency', 0.0) / rate if rate else 0.0)"/>
                                                 <tr>
                                                     <td class="text-end"><strong>Base <t t-esc="amount_by_group.get('group_name', '')"/></strong></td>
-                                                    <td class="text-end"><span t-esc="amount_by_group.get('base_amount_currency', 0.0)" t-options='{"widget": "monetary", "display_currency": usd_currency}'/></td>
+                                                    <td class="text-end"><span t-esc="grp_base_usd" t-options='{"widget": "monetary", "display_currency": usd_currency}'/></td>
                                                 </tr>
                                                 <tr>
                                                      <td class="text-end"><strong><t t-esc="amount_by_group.get('group_name', '')"/></strong></td>
-                                                     <td class="text-end"><span t-esc="amount_by_group.get('tax_amount_currency', 0.0)" t-options='{"widget": "monetary", "display_currency": usd_currency}'/></td>
+                                                     <td class="text-end"><span t-esc="grp_tax_usd" t-options='{"widget": "monetary", "display_currency": usd_currency}'/></td>
                                                 </tr>
                                             </t>
                                         </t>
@@ -345,13 +350,15 @@
                                     <t t-if="vef_subtotals">
                                         <t t-foreach="vef_subtotals" t-as="subtotal">
                                             <t t-foreach="subtotal.get('tax_groups', [])" t-as="amount_by_group">
+                                                <t t-set="grp_base_vef" t-value="amount_by_group.get('base_amount_currency', 0.0) if o.currency_id != usd_currency else (amount_by_group.get('base_amount_currency', 0.0) * rate)"/>
+                                                <t t-set="grp_tax_vef" t-value="amount_by_group.get('tax_amount_currency', 0.0) if o.currency_id != usd_currency else (amount_by_group.get('tax_amount_currency', 0.0) * rate)"/>
                                                 <tr>
                                                     <td class="text-end"><strong>Base <t t-esc="amount_by_group.get('group_name', '')"/></strong></td>
-                                                    <td class="text-end"><span t-esc="amount_by_group.get('base_amount_currency', 0.0)" t-options='{"widget": "monetary", "display_currency": vef_currency}'/></td>
+                                                    <td class="text-end"><span t-esc="grp_base_vef" t-options='{"widget": "monetary", "display_currency": vef_currency}'/></td>
                                                 </tr>
                                                 <tr>
                                                      <td class="text-end"><strong><t t-esc="amount_by_group.get('group_name', '')"/></strong></td>
-                                                     <td class="text-end"><span t-esc="amount_by_group.get('tax_amount_currency', 0.0)" t-options='{"widget": "monetary", "display_currency": vef_currency}'/></td>
+                                                     <td class="text-end"><span t-esc="grp_tax_vef" t-options='{"widget": "monetary", "display_currency": vef_currency}'/></td>
                                                 </tr>
                                             </t>
                                         </t>
@@ -399,7 +406,8 @@
                             A los efectos de lo previsto en el <strong>Art. 25</strong> de la Ley de
                             Impuesto al Valor Agregado se expresa el monto total
                             de la factura en <strong>USD</strong> calculado a la tasa de cambio
-                            establecida por BCV de 1US$ por <strong><t t-out="o.foreign_rate" t-options='{"widget": "monetary", "display_currency": vef_currency}'/></strong>
+                            establecida por BCV de 1US$ por <strong><t t-out="rate" t-options='{"widget": "monetary", "display_currency": vef_currency}'/></strong>
+
                         </span>
                     </div>
 

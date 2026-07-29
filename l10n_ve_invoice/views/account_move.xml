@@ -8,8 +8,13 @@
 	    <field name="invoice_has_outstanding" position="after">
 		<field name="is_contingency" invisible="1"/>
 		<field name="l10n_ve_is_free_form" invisible="1"/>
+		<field name="l10n_ve_is_fully_refunded" invisible="1"/>
 	    </field>
+            <xpath expr="//button[@name='action_reverse']" position="attributes">
+                <attribute name="invisible">l10n_ve_is_fully_refunded or move_type not in ('out_invoice', 'in_invoice') or state != 'posted'</attribute>
+            </xpath>
             <xpath expr="//header" position="inside">
+
                 <button name="action_open_void_control_wizard" 
                         string="Anular Control por Atasco" 
                         type="object" 

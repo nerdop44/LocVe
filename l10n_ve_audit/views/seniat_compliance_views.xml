@@ -42,9 +42,9 @@
             <field name="inherit_id" ref="account_dual_currency.account_move_form_inherit_v23"/>
             <field name="arch" type="xml">
                 <xpath expr="//field[@name='tax_today']" position="attributes">
-                    <attribute name="readonly">1</attribute>
-                    <attribute name="force_save">1</attribute>
+                    <attribute name="invisible">1</attribute>
                 </xpath>
+
                 <xpath expr="//field[@name='tax_today_edited']" position="attributes">
                     <attribute name="invisible">1</attribute>
                 </xpath>

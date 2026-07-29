@@ -465,15 +465,16 @@ class AccountMove(models.Model):
 
             # Alinear campos de la localización si tax_today es válido
             if rec.tax_today > 0.0:
-                if hasattr(rec, 'foreign_rate') and rec.foreign_rate != rec.tax_today:
-                    rec.foreign_rate = rec.tax_today
-                if hasattr(rec, 'foreign_inverse_rate'):
+                if hasattr(rec, 'foreign_rate') and 'foreign_rate' in rec._fields and rec.foreign_rate != rec.tax_today:
+                    rec._cache['foreign_rate'] = rec.tax_today
+                if hasattr(rec, 'foreign_inverse_rate') and 'foreign_inverse_rate' in rec._fields:
                     if rec.company_id.currency_id.name == 'USD':
                         expected_inverse = rec.tax_today
                     else:
                         expected_inverse = 1.0 / rec.tax_today
-                    if abs(rec.foreign_inverse_rate - expected_inverse) > 1e-7:
-                        rec.foreign_inverse_rate = expected_inverse
+                    if abs((rec.foreign_inverse_rate or 0.0) - expected_inverse) > 1e-7:
+                        rec._cache['foreign_inverse_rate'] = expected_inverse
+
 
             rec.amount_untaxed_usd = 0
             rec.amount_tax_usd = 0

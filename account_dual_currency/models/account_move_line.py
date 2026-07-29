@@ -1271,14 +1271,16 @@ class AccountMoveLine(models.Model):
         for line in self:
             if line.move_id.move_type in ('out_invoice', 'out_refund', 'in_invoice', 'in_refund', 'out_receipt', 'in_receipt'):
                 if not line.display_type:
-                    # Solo validar líneas de productos reales
-                    if line.product_id and line.price_unit <= 0.0:
-                        raise ValidationError(_("El precio unitario de la línea de producto '%s' debe ser mayor a cero.") % line.name)
+                    if line.price_unit <= 0.0:
+                        line_name = line.name or (line.product_id and line.product_id.name) or 'Línea de producto'
+                        raise ValidationError(_("El precio unitario de la línea '%s' debe ser mayor a cero.") % line_name)
 
     @api.constrains('tax_ids')
     def _check_single_tax(self):
         for line in self:
             if line.move_id.move_type in ('out_invoice', 'out_refund', 'in_invoice', 'in_refund', 'out_receipt', 'in_receipt'):
-                if not line.display_type and line.product_id and len(line.tax_ids) > 1:
-                    raise ValidationError(_("No se permite aplicar más de una alícuota de impuesto a la línea de producto '%s'. Para cambiar la alícuota, primero debe remover la anterior.") % line.name)
+                if not line.display_type and len(line.tax_ids) > 1:
+                    line_name = line.name or (line.product_id and line.product_id.name) or 'Línea de producto'
+                    raise ValidationError(_("No se permite aplicar más de una alícuota de impuesto a la línea '%s'. Para cambiar la alícuota, primero debe remover la anterior.") % line_name)
+
 
