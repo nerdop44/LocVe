@@ -72,24 +72,44 @@ class AccountMoveLine(models.Model):
             else:
                 rec.price_unit = rec.price_unit_usd * rate
 
-    @api.onchange('product_id')
-    def _onchange_product_id(self):
+    @api.depends('product_id', 'move_id.currency_id', 'move_id.tax_today')
+    def _compute_price_unit(self):
+        super()._compute_price_unit()
         for line in self:
-            if not line.product_id:
+            if not line.product_id or line.display_type:
                 continue
             master_usd = line.product_id.list_price_usd or 0.0
+            list_price_bs = line.product_id.list_price or 0.0
             rate = line.move_id.tax_today or line.move_id.foreign_rate or (line.company_id.currency_id_dif.get_trm_systray() if line.company_id.currency_id_dif else 1.0)
             
             if line.move_id.currency_id and line.move_id.currency_id.name == 'USD':
-                line.price_unit = master_usd if master_usd > 0 else line.product_id.list_price
-                line.price_unit_usd = master_usd if master_usd > 0 else line.price_unit
-            else:
                 if master_usd > 0:
-                    line.price_unit = master_usd * rate if rate > 0 else line.product_id.list_price
-                    line.price_unit_usd = master_usd
+                    line.price_unit = master_usd
+                elif list_price_bs > 0 and rate > 0:
+                    line.price_unit = list_price_bs / rate
+                line.price_unit_usd = line.price_unit
+            else:
+                if master_usd > 0 and rate > 0:
+                    line.price_unit = master_usd * rate
                 else:
-                    line.price_unit = line.product_id.list_price
-                    line.price_unit_usd = (line.price_unit / rate) if rate > 0 else 0.0
+                    line.price_unit = list_price_bs
+                line.price_unit_usd = (line.price_unit / rate) if rate > 0 else 0.0
+
+    @api.onchange('product_id')
+    def _onchange_product_id(self):
+        self._compute_price_unit()
+
+    @api.onchange('price_unit')
+    def _onchange_price_unit_warning(self):
+        for line in self:
+            if line.move_id.move_type in ('out_invoice', 'out_refund', 'in_invoice', 'in_refund') and not line.display_type:
+                if line.price_unit <= 0.0 and line.product_id:
+                    return {
+                        'warning': {
+                            'title': _("Precio Inválido"),
+                            'message': _("El precio unitario de la línea '%s' no puede ser 0.0 o negativo.") % (line.product_id.display_name or line.name)
+                        }
+                    }
 
     @api.depends('debit_usd', 'credit_usd')
     def _compute_balance_usd(self):
@@ -107,6 +127,7 @@ class AccountMoveLine(models.Model):
                     rec.price_unit_usd = (rec.price_unit / rate) if rate > 0 else 0
             else:
                 rec.price_unit_usd = 0
+
 
 
             # if rec.price_unit_usd > 0:

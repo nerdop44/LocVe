@@ -45,9 +45,11 @@ class AccountMove(models.Model):
 
     acuerdo_moneda = fields.Boolean(string="Acuerdo de Factura Bs.", default=False)
 
-    tax_today = fields.Float(string="Tasa de Factura", store=True,
-                             default=lambda self: self.env.company.currency_id_dif.inverse_rate,
+    tax_today = fields.Float(string="Tasa de Factura", store=True, readonly=False,
+                             compute='_compute_tax_today',
+                             default=lambda self: (self.env.company.currency_id_dif.get_trm_systray() if self.env.company.currency_id_dif else 1.0),
                              tracking=True)
+
 
     tax_today_edited = fields.Boolean(string="Tasa Manual", default=False)
 
@@ -167,24 +169,40 @@ class AccountMove(models.Model):
             rec.verificar_pagos = True
 
     @api.depends('invoice_date', 'date', 'company_id')
+    def _compute_tax_today(self):
+        for rec in self:
+            if rec.tax_today_edited and rec.tax_today > 0.0:
+                continue
+            company = rec.company_id or rec.env.company
+            currency_dif = company.currency_id_dif
+            if not currency_dif:
+                rec.tax_today = 1.0
+                continue
+            
+            date_to_use = rec.invoice_date or rec.date or fields.Date.context_today(rec)
+            rate_val = 0.0
+            new_rate_ids = currency_dif._get_rates(company, date_to_use)
+            if new_rate_ids and currency_dif.id in new_rate_ids:
+                r = new_rate_ids[currency_dif.id]
+                if r > 0:
+                    rate_val = (1.0 / r) if r < 1.0 else r
+            
+            if rate_val <= 0.0:
+                systray_rate = currency_dif.get_trm_systray()
+                if systray_rate and systray_rate > 0:
+                    rate_val = systray_rate
+            
+            rec.tax_today = rate_val if rate_val > 0 else 1.0
+
+    @api.depends('invoice_date', 'date', 'company_id')
     def _compute_date(self):
         res = super(AccountMove, self)._compute_date()
         for rec in self:
             if rec.state == 'posted':
                 continue
-            if rec.company_id.currency_id_dif and not rec.tax_today_edited:
-                if rec.tax_today > 0.0:
-                    continue
-                date_to_use = rec.invoice_date or rec.date or fields.Date.context_today(rec)
-                new_rate_ids = rec.company_id.currency_id_dif._get_rates(rec.company_id, date_to_use)
-                if new_rate_ids and rec.company_id.currency_id_dif.id in new_rate_ids:
-                    new_rate = 1 / new_rate_ids[rec.company_id.currency_id_dif.id]
-                    rec.tax_today = new_rate
-                else:
-                    # No hay tasa registrada para la fecha historica: usar la tasa actual como fallback
-                    fallback_rate = rec.company_id.currency_id_dif.inverse_rate if rec.company_id.currency_id_dif else 0.0
-                    if fallback_rate and fallback_rate > 0:
-                        rec.tax_today = fallback_rate
+            if not rec.tax_today or rec.tax_today <= 0.0:
+                rec._compute_tax_today()
+
 
 
     @api.onchange('tax_today_edited')
