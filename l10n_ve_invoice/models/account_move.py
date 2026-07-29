@@ -32,7 +32,8 @@ class AccountMove(models.Model):
         store=True,
     )
 
-    @api.depends('state', 'amount_total', 'reversal_move_id.state', 'reversal_move_id.amount_total')
+    @api.depends('state', 'amount_total', 'reversed_entry_id')
+
     def _compute_l10n_ve_is_fully_refunded(self):
         for move in self:
             if move.move_type in ('out_invoice', 'in_invoice') and move.state == 'posted':
