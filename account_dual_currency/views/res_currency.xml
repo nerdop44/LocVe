@@ -29,8 +29,8 @@
                         <list create="0" delete="0" edit="0">
                             <field name="name" string="Fecha"/>
                             <field name="company_id" groups="base.group_multi_company"/>
-                            <field name="company_rate" digits="[12, 12]"/>
-                            <field name="inverse_company_rate" digits="[12, 4]"/>
+                            <field name="inverse_company_rate" string="Unidad por USD" digits="[12, 4]"/>
+                            <field name="company_rate" string="USD por unidad" digits="[12, 12]"/>
                         </list>
                     </field>
                 </xpath>
