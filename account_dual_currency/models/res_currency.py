@@ -10,38 +10,9 @@ _logger = logging.getLogger(__name__)
 import urllib3
 urllib3.disable_warnings()
 
-class ResCurrencyRate(models.Model):
-    _inherit = 'res.currency.rate'
-
-    inverse_rate = fields.Float(
-        string='Tasa BCV (Bs. / USD)',
-        compute='_compute_inverse_rate',
-        digits=(12, 4),
-        store=True,
-        help="Tasa de cambio oficial del Banco Central de Venezuela en Bolívares por Dólar/Euro."
-    )
-
-    @api.depends('rate')
-    def _compute_inverse_rate(self):
-        for rec in self:
-            if rec.rate > 0:
-                rec.inverse_rate = round(1.0 / rec.rate, 4)
-            else:
-                rec.inverse_rate = 0.0
-
 class ResCurrency(models.Model):
     _inherit = 'res.currency'
 
-
-    bcv_rate_ids = fields.One2many('res.currency.rate', compute='_compute_bcv_rate_ids', string='Tasas BCV')
-
-    def _compute_bcv_rate_ids(self):
-        usd_currency = self.env['res.currency'].search([('name', '=', 'USD')], limit=1)
-        for rec in self:
-            if rec.name in ['VEF', 'VES']:
-                rec.bcv_rate_ids = usd_currency.rate_ids if usd_currency else rec.rate_ids
-            else:
-                rec.bcv_rate_ids = rec.rate_ids
 
 
     @api.model
