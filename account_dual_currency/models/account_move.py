@@ -1109,21 +1109,20 @@ class AccountMove(models.Model):
         for rec in self:
             if rec.company_id.currency_id_dif and not rec.tax_today_edited and not getattr(rec, 'manually_set_rate', False):
                 date_to_use = rec.invoice_date or rec.date or fields.Date.context_today(rec)
+                new_rate = 0.0
                 try:
                     new_rate_ids = rec.company_id.currency_id_dif._get_rates(rec.company_id, date_to_use)
+                    if new_rate_ids and rec.company_id.currency_id_dif.id in new_rate_ids:
+                        r = new_rate_ids[rec.company_id.currency_id_dif.id]
+                        if r > 0:
+                            new_rate = (1.0 / r) if r < 1.0 else r
                 except Exception:
-                    new_rate_ids = {}
-                if new_rate_ids and rec.company_id.currency_id_dif.id in new_rate_ids and new_rate_ids[rec.company_id.currency_id_dif.id] > 0:
-                    db_rate = new_rate_ids[rec.company_id.currency_id_dif.id]
-                else:
-                    db_rate = rec.company_id.currency_id_dif.inverse_rate or 0.0
-                
-                if 0.0 < db_rate < 1.0:
-                    new_rate = 1.0 / db_rate
-                else:
-                    new_rate = db_rate
+                    pass
 
-                if new_rate > 0:
+                if new_rate <= 1.0:
+                    new_rate = rec.company_id.currency_id_dif.get_trm_systray()
+
+                if new_rate > 1.0:
                     rec.tax_today = new_rate
                     rec.foreign_rate = new_rate
                     if rec.company_id.currency_id.name == 'USD':
@@ -1131,6 +1130,7 @@ class AccountMove(models.Model):
                     else:
                         rec.foreign_inverse_rate = 1.0 / new_rate
                     rec._onchange_tax_today()
+
 
     @api.onchange('tax_today')
     def _onchange_tax_today_sync_ve(self):

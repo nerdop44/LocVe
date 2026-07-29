@@ -53,13 +53,30 @@ class Productos(models.Model):
 
     @api.onchange('list_price_usd')
     def _onchange_list_price_usd_sync(self):
-        if self.list_price_usd and self.list_price_usd != self.list_price:
+        if self.list_price_usd is not False and self.list_price_usd != self.list_price:
             self.list_price = self.list_price_usd
 
     @api.onchange('list_price')
     def _onchange_list_price_sync(self):
-        if self.list_price and self.list_price != self.list_price_usd:
+        if self.list_price is not False and self.list_price != self.list_price_usd:
             self.list_price_usd = self.list_price
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if 'list_price_usd' in vals and ('list_price' not in vals or vals.get('list_price') == 1.0):
+                vals['list_price'] = vals['list_price_usd']
+            elif 'list_price' in vals and ('list_price_usd' not in vals or vals.get('list_price_usd') == 1.0):
+                vals['list_price_usd'] = vals['list_price']
+        return super().create(vals_list)
+
+    def write(self, vals):
+        if 'list_price_usd' in vals and 'list_price' not in vals:
+            vals['list_price'] = vals['list_price_usd']
+        elif 'list_price' in vals and 'list_price_usd' not in vals:
+            vals['list_price_usd'] = vals['list_price']
+        return super().write(vals)
+
 
 
     @api.depends('standard_price', 'currency_id_dif')

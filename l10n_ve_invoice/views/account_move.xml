@@ -157,6 +157,19 @@
             </field>
         </record>
 
+        <!-- ORDER AND RECEPTION FIELDS (SAFE PRESERVATION WITH INVISIBLE ATTRIBUTE) -->
+        <record id="account_move_form_locve_account_move" model="ir.ui.view">
+            <field name="name">account.move.form.locve.account.move</field>
+            <field name="model">account.move</field>
+            <field name="inherit_id" ref="account.view_move_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='invoice_origin']" position="attributes">
+                    <attribute name="invisible">1</attribute>
+                </xpath>
+            </field>
+        </record>
+
+
 
 
 

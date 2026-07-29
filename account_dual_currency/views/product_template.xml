@@ -19,6 +19,9 @@
             <field name="inherit_id" ref="product.product_template_form_view"/>
             <field name="arch" type="xml">
                     <!-- Ocultar Elementos Nativo y Ruido Visual Pachacutec -->
+                    <xpath expr="//field[@name='list_price']" position="attributes">
+                        <attribute name="invisible">1</attribute>
+                    </xpath>
 
                     <xpath expr="//field[@name='standard_price']" position="attributes">
                         <attribute name="invisible">1</attribute>
