@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 {
     'name': '[LocVe] Doble Moneda Venezuela',
-    'version': '18.0.2.0.12',
+    'version': '18.0.2.0.13',
+
 
 
 

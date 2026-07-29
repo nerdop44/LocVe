@@ -32,7 +32,9 @@ class AccountRetention(models.Model):
     base_currency_is_vef = fields.Boolean(
         compute="_compute_currency_info",
         store=True,
+        precompute=True,
     )
+
 
     def _get_retention_currencies(self):
         """
