@@ -2,7 +2,8 @@
 {
     'name': '[LocVe] Motor de Cierre de Año Fiscal',
     'summary': 'Motor técnico de cierre de año fiscal para la Localización LocVe.',
-    'version': '18.0.2.0.0',
+    'version': '18.0.2.0.1',
+
     'category': 'Accounting & Finance',
     'website': 'https://github.com/nerdop44',
     'author': 'Ing. Nerdo Jose Pulido Aguirre',
