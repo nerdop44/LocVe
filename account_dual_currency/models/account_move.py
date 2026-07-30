@@ -343,30 +343,41 @@ class AccountMove(models.Model):
     def _same_currency(self):
         self.same_currency = self.currency_id == self.env.company.currency_id
 
-
     @api.onchange('tax_today')
     def _onchange_tax_today(self):
         self = self.with_context(check_move_validity=False)
         for rec in self:
             if not rec.move_type == 'entry':
+                rate = rec.tax_today or 1.0
+                company = rec.company_id or rec.env.company
+                is_usd_company = company.currency_id.name == 'USD'
+                
                 for l in rec.invoice_line_ids:
-                    if rec.currency_id == rec.company_id.currency_id:
-                        if l.price_unit:
-                            # Recalcular price_unit_usd basándose en la tasa:
-                            if rec.company_id.currency_id.name == 'USD':
-                                l.price_unit_usd = l.price_unit * rec.tax_today
+                    if is_usd_company:
+                        if rec.currency_id.name == 'USD':
+                            if l.price_unit:
+                                l.price_unit_usd = l.price_unit
                             else:
-                                l.price_unit_usd = l.price_unit / rec.tax_today if rec.tax_today > 0 else 0.0
+                                l.price_unit = l.price_unit_usd
                         else:
-                            if rec.company_id.currency_id.name == 'USD':
-                                l.price_unit = l.price_unit_usd / rec.tax_today if rec.tax_today > 0 else 0.0
+                            if l.price_unit:
+                                if l.price_unit_usd == l.price_unit or l.price_unit_usd > (l.product_id.list_price_usd * 2.0 if l.product_id.list_price_usd else 1000.0):
+                                    l.price_unit_usd = l.price_unit / rate if rate > 0 else 0.0
+                                else:
+                                    l.price_unit = l.price_unit_usd * rate
                             else:
-                                l.price_unit = l.price_unit_usd * rec.tax_today
+                                l.price_unit = l.price_unit_usd * rate
                     else:
-                        if l.price_unit:
-                            l.price_unit_usd = l.price_unit
+                        if rec.currency_id == rec.company_id.currency_id:
+                            if l.price_unit:
+                                l.price_unit_usd = l.price_unit / rate if rate > 0 else 0.0
+                            else:
+                                l.price_unit = l.price_unit_usd * rate
                         else:
-                            l.price_unit = l.price_unit_usd
+                            if l.price_unit:
+                                l.price_unit_usd = l.price_unit
+                            else:
+                                l.price_unit = l.price_unit_usd
                 rec._onchange_quick_edit_total_amount()
                 rec._onchange_quick_edit_line_ids()
                 rec._compute_tax_totals()
@@ -374,6 +385,10 @@ class AccountMove(models.Model):
 
                 # Update the accounting lines (line_ids) in the UI immediately
                 for aml in rec.line_ids:
+                    aml._compute_currency_rate()
+                    aml._debit_usd()
+                    aml._credit_usd()
+                    aml._price_subtotal_usd()
                     if aml.debit != 0:
                         if aml.currency_id == rec.company_id.currency_id_dif:
                             aml.debit_usd = abs(aml.amount_currency)
@@ -422,18 +437,22 @@ class AccountMove(models.Model):
     @api.onchange('currency_id')
     def _onchange_currency(self):
         for rec in self:
-            if rec.currency_id == self.env.company.currency_id:
-                for l in rec.invoice_line_ids:
-                    l.currency_id = rec.currency_id
-                    if rec.company_id.currency_id.name == 'USD':
-                        l.price_unit = (l.price_unit_usd / (rec.tax_today if rec.tax_today > 0 else 1.0))
+            rate = rec.tax_today or 1.0
+            company = rec.company_id or rec.env.company
+            is_usd_company = company.currency_id.name == 'USD'
+            
+            for l in rec.invoice_line_ids:
+                l.currency_id = rec.currency_id
+                if is_usd_company:
+                    if rec.currency_id.name == 'USD':
+                        l.price_unit = l.price_unit_usd
                     else:
-                        l.price_unit = (l.price_unit_usd * (rec.tax_today if rec.tax_today > 0 else 1.0))
-
-            else:
-                for l in rec.invoice_line_ids:
-                    l.currency_id = rec.currency_id
-                    l.price_unit = l.price_unit_usd
+                        l.price_unit = l.price_unit_usd * rate
+                else:
+                    if rec.currency_id == rec.company_id.currency_id:
+                        l.price_unit = l.price_unit_usd * rate
+                    else:
+                        l.price_unit = l.price_unit_usd
 
             for aml in rec.line_ids:
                 aml.currency_id = rec.currency_id
