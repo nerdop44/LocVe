@@ -206,13 +206,24 @@ class ResCurrency(models.Model):
             
             _logger.info(">>>>>> Pachacutec: Iniciando actualización masiva de precios (Tasa: %s)", tasa)
             
-            # Actualizar Templates (list_price = list_price_usd * tasa)
-            query_tmpl = """
-                UPDATE product_template 
-                SET list_price = list_price_usd * %s 
-                WHERE list_price_usd > 0
-            """
-            self.env.cr.execute(query_tmpl, (tasa,))
+            # Actualizar Templates (diferenciado por moneda base de la compañía)
+            company = self.env.company
+            if company.currency_id.name == 'USD':
+                query_tmpl = """
+                    UPDATE product_template 
+                    SET list_price = list_price_usd,
+                        list_price_bs = list_price_usd * %s 
+                    WHERE list_price_usd > 0
+                """
+                self.env.cr.execute(query_tmpl, (tasa,))
+            else:
+                query_tmpl = """
+                    UPDATE product_template 
+                    SET list_price = list_price_usd * %s,
+                        list_price_bs = list_price_usd * %s 
+                    WHERE list_price_usd > 0
+                """
+                self.env.cr.execute(query_tmpl, (tasa, tasa))
             
             # Nota: Odoo 18 maneja variantes. Las variantes heredan list_price de product_template.
             # El campo lst_price no existe en la tabla product_product, por lo que esta consulta es redundante y errónea.

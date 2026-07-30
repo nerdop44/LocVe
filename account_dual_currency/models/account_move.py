@@ -26,12 +26,30 @@ class AccountMove(models.Model):
 
     currency_id_dif = fields.Many2one("res.currency",
                                       string="Moneda Dual Ref.",
-                                      default=lambda self: self.env['res.currency'].search([('name', '=', 'USD')],
-                                                                                           limit=1), )
+                                      compute="_compute_currency_id_dif",
+                                      readonly=False, store=True, precompute=True)
 
-    # Campos de compatibilidad (Alias para evitar errores de validación de vista)
-    currency_vef_id = fields.Many2one("res.currency", related="currency_id_dif", string="Moneda VEF (Compatibilidad)")
-    vef_currency_id = fields.Many2one("res.currency", related="currency_id_dif", string="Moneda VEF (Compatibilidad 2)")
+    @api.depends('company_id.currency_id_dif')
+    def _compute_currency_id_dif(self):
+        for rec in self:
+            if rec.company_id.currency_id_dif:
+                rec.currency_id_dif = rec.company_id.currency_id_dif
+            else:
+                rec.currency_id_dif = self.env['res.currency'].search([('name', '=', 'USD')], limit=1)
+
+    # Campos de compatibilidad y control estricto de formato de moneda
+    currency_vef_id = fields.Many2one("res.currency", string="Moneda VEF (Compatibilidad)", compute="_compute_strict_currencies")
+    vef_currency_id = fields.Many2one("res.currency", string="Moneda VEF (Compatibilidad 2)", compute="_compute_strict_currencies")
+    currency_usd_id = fields.Many2one("res.currency", string="Moneda USD", compute="_compute_strict_currencies")
+
+    @api.depends('company_id')
+    def _compute_strict_currencies(self):
+        usd = self.env.ref('base.USD', raise_if_not_found=False) or self.env['res.currency'].search([('name', '=', 'USD')], limit=1)
+        vef = self.env.ref('base.VEF', raise_if_not_found=False) or self.env['res.currency'].search([('name', 'in', ('VEF', 'VES'))], limit=1) or self.env.company.currency_id
+        for rec in self:
+            rec.currency_usd_id = usd.id if usd else False
+            rec.currency_vef_id = vef.id if vef else False
+            rec.vef_currency_id = vef.id if vef else False
 
     currency_id_dif_resolved = fields.Many2one("res.currency",
                                                string="Moneda Dual Ref. Resuelta",
@@ -213,6 +231,22 @@ class AccountMove(models.Model):
                     rec.tax_today = 1 / new_rate_ids[rec.company_id.currency_id_dif.id]
                 else:
                     rec.tax_today = rec.company_id.currency_id_dif.inverse_rate if rec.company_id.currency_id_dif else 1.0
+
+
+    @api.onchange('tax_today', 'currency_id')
+    def _onchange_tasa_o_moneda(self):
+        for rec in self:
+            rate = rec.tax_today or 1.0
+            for line in rec.invoice_line_ids:
+                if line.product_id:
+                    if rec.currency_id.name == 'USD':
+                        line.price_unit = line.price_unit_usd or line.product_id.list_price_usd or 0.0
+                    else:
+                        price_usd = line.price_unit_usd or line.product_id.list_price_usd or 0.0
+                        line.price_unit = price_usd * rate
+                    line._debit_usd()
+                    line._credit_usd()
+                    line._price_subtotal_usd()
 
 
     @api.model_create_multi

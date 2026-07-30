@@ -6,7 +6,7 @@
     'author': 'Ing. Nerdo Jose Pulido Aguirre',
     'website': 'https://github.com/nerdop44',
     'category': 'Accounting/Localizations/Account Chart',
-    'version': '18.0.2.0.18',
+    'version': '18.0.2.0.19',
 
 
 
