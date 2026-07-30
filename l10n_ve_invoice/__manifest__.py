@@ -2,7 +2,7 @@
 {
     'name': '[LocVe] Facturación Venezuela',
     'summary': 'Módulo de facturación venezolana conforme al SENIAT para la suite LocVe.',
-    'version': '18.0.2.0.19',
+    'version': '18.0.2.0.20',
 
 
 
