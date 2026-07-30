@@ -10,6 +10,32 @@ _logger = logging.getLogger(__name__)
 import urllib3
 urllib3.disable_warnings()
 
+class ResCurrencyRate(models.Model):
+    _inherit = 'res.currency.rate'
+
+    bcv_rate = fields.Float(
+        string='Unidad por USD',
+        compute='_compute_bcv_rates',
+        digits=(12, 4),
+        help="Muestra el valor de la tasa en bolívares por dólar (ej: 744.2264)."
+    )
+    inverse_bcv_rate = fields.Float(
+        string='USD por unidad',
+        compute='_compute_bcv_rates',
+        digits=(12, 12),
+        help="Muestra la tasa técnica decimal (ej: 0.001343677139)."
+    )
+
+    @api.depends('rate', 'currency_id')
+    def _compute_bcv_rates(self):
+        for rec in self:
+            if rec.currency_id.name in ['VEF', 'VES']:
+                rec.bcv_rate = rec.rate
+                rec.inverse_bcv_rate = 1.0 / rec.rate if rec.rate > 0.0 else 0.0
+            else:
+                rec.bcv_rate = 1.0 / rec.rate if rec.rate > 0.0 else 0.0
+                rec.inverse_bcv_rate = rec.rate
+
 class ResCurrency(models.Model):
     _inherit = 'res.currency'
 
@@ -17,11 +43,16 @@ class ResCurrency(models.Model):
 
     def _compute_bcv_rate_ids(self):
         usd_currency = self.env['res.currency'].search([('name', '=', 'USD')], limit=1)
+        company = self.env.company
         for rec in self:
             if rec.name in ['VEF', 'VES']:
-                rec.bcv_rate_ids = usd_currency.rate_ids if usd_currency else rec.rate_ids
+                if company.currency_id.name in ['VEF', 'VES']:
+                    rec.bcv_rate_ids = usd_currency.rate_ids if usd_currency else rec.rate_ids
+                else:
+                    rec.bcv_rate_ids = rec.rate_ids
             else:
                 rec.bcv_rate_ids = rec.rate_ids
+
 
 
 
@@ -318,6 +349,9 @@ class ResCurrency(models.Model):
             elif curr_name == 'EUR':
                 return {'rate': val_eur, 'date': parsed_date}
             elif curr_name in ['VES', 'VEF']:
+                company = self.env.company
+                if company.currency_id.name == 'USD':
+                    return {'rate': val_usd, 'date': parsed_date}
                 return {'rate': 1.0, 'date': parsed_date}
             else:
                 return False
@@ -329,12 +363,15 @@ class ResCurrency(models.Model):
     def actualizar_tasa(self):
         for rec in self:
             # Si rec es VEF o VES (monedas locales/alternas), delegamos a las extranjeras
+            # pero SOLO si la moneda base de la compañía es VEF o VES!
             if rec.name in ['VES', 'VEF']:
-                monedas_ext = self.env['res.currency'].search([('name', 'in', ['USD', 'EUR']), ('active', '=', True)])
-                # Propagar contexto de origen (cron o botón)
-                for m in monedas_ext.with_context(self.env.context):
-                    m.actualizar_tasa()
-                continue
+                company = self.env.company
+                if company.currency_id.name in ['VES', 'VEF']:
+                    monedas_ext = self.env['res.currency'].search([('name', 'in', ['USD', 'EUR']), ('active', '=', True)])
+                    # Propagar contexto de origen (cron o botón)
+                    for m in monedas_ext.with_context(self.env.context):
+                        m.actualizar_tasa()
+                    continue
 
             # Para monedas extranjeras (USD, EUR), se calcula su tasa BCV (ej: 523.675)
             result = rec.get_bcv()
@@ -358,16 +395,32 @@ class ResCurrency(models.Model):
                 orig_ctx = 'from_button' if not self.env.context.get('from_cron') else 'from_cron'
                 
                 for c in company_ids:
-                    # En Odoo (base Bolívar en tasas), la tasa de la moneda fuerte es siempre 1.0 / tasa_bcv
-                    odoo_rate = 1.0 / nueva_tasa_bcv
+                    # Determinar el destino de la tasa y el valor de la tasa
+                    if rec.name == c.currency_id.name:
+                        target_currency = c.currency_id_dif
+                        if not target_currency:
+                            continue
+                        if target_currency.name in ['VES', 'VEF']:
+                            odoo_rate = nueva_tasa_bcv
+                        else:
+                            odoo_rate = 1.0 / nueva_tasa_bcv
+                    else:
+                        target_currency = rec
+                        if c.currency_id.name == 'USD':
+                            odoo_rate = nueva_tasa_bcv
+                        else:
+                            odoo_rate = 1.0 / nueva_tasa_bcv
+
+                    if not target_currency:
+                        continue
                     
                     tasa_actual = self.env['res.currency.rate'].sudo().search(
-                        [('name', '=', fecha_bcv), ('currency_id', '=', rec.id), ('company_id', '=', c.id)], limit=1)
+                        [('name', '=', fecha_bcv), ('currency_id', '=', target_currency.id), ('company_id', '=', c.id)], limit=1)
                     
                     nueva = False
                     if not tasa_actual:
                         self.env['res.currency.rate'].sudo().with_context({orig_ctx: True}).create({
-                                'currency_id': rec.id,
+                                'currency_id': target_currency.id,
                                 'name': fecha_bcv,
                                 'rate': odoo_rate,
                                 'company_id': c.id,
@@ -384,7 +437,7 @@ class ResCurrency(models.Model):
 
                         channel_id.message_post(
                             body="Tasa de cambio actualizada para %s (%s): %s (en %s), BCV a las %s." % (
-                                rec.name, c.name, odoo_rate, c.currency_id.name,
+                                target_currency.name, c.name, odoo_rate, c.currency_id.name,
                                 datetime.strftime(fields.Datetime.context_timestamp(self, datetime.now()),
                                                   "%d-%m-%Y %H:%M:%S")),
                             message_type='notification',
@@ -417,22 +470,25 @@ class ResCurrency(models.Model):
 
     def recuperar_tasas_historicas(self):
         for rec in self:
+            # Si rec es VEF o VES (monedas locales/alternas), delegamos a las extranjeras
+            # pero SOLO si la moneda base de la compañía es VEF o VES!
             if rec.name in ['VES', 'VEF']:
-                monedas_ext = self.env['res.currency'].search([('name', 'in', ['USD', 'EUR']), ('active', '=', True)])
-                for m in monedas_ext.with_context(self.env.context):
-                    m.recuperar_tasas_historicas()
+                company = self.env.company
+                if company.currency_id.name in ['VES', 'VEF']:
+                    monedas_ext = self.env['res.currency'].search([('name', 'in', ['USD', 'EUR']), ('active', '=', True)])
+                    for m in monedas_ext.with_context(self.env.context):
+                        m.recuperar_tasas_historicas()
+                    continue
+
+            if rec.name not in ['USD', 'EUR', 'VES', 'VEF']:
                 continue
 
-            if rec.name not in ['USD', 'EUR']:
-                continue
-
-                
             today = fields.Date.context_today(self)
             company_ids = self.env['res.company'].search([])
             channel_id = self.env.ref('account_dual_currency.trm_channel')
             
             # 1. Determinar URL histórica según moneda
-            if rec.name == 'USD':
+            if rec.name in ['USD', 'VES', 'VEF']:
                 url = 'https://ve.dolarapi.com/v1/historicos/dolares/oficial'
             elif rec.name == 'EUR':
                 url = 'https://ve.dolarapi.com/v1/historicos/euros/oficial'
@@ -461,9 +517,17 @@ class ResCurrency(models.Model):
             ctx = dict(self.env.context, from_button=True)
 
             for c in company_ids:
-                # Obtener la última tasa registrada en el sistema
+                # Determinar la moneda destino para la tasa
+                if rec.name == c.currency_id.name:
+                    target_currency = c.currency_id_dif
+                else:
+                    target_currency = rec
+
+                if not target_currency:
+                    continue
+
                 last_rate_rec = self.env['res.currency.rate'].sudo().search([
-                    ('currency_id', '=', rec.id),
+                    ('currency_id', '=', target_currency.id),
                     ('company_id', '=', c.id)
                 ], order='name desc', limit=1)
                 
@@ -494,19 +558,21 @@ class ResCurrency(models.Model):
                     if not rate_val:
                         continue  # Si no hay registro histórico, ignoramos
                     
-                    base_bcv = 1.0  # El Bolívar es siempre 1.0 en la compañía
-                    odoo_rate = base_bcv / rate_val
+                    if c.currency_id.name == 'USD':
+                        odoo_rate = rate_val
+                    else:
+                        odoo_rate = 1.0 / rate_val
                     
                     tasa_actual = self.env['res.currency.rate'].sudo().search([
                         ('name', '=', d),
-                        ('currency_id', '=', rec.id),
+                        ('currency_id', '=', target_currency.id),
                         ('company_id', '=', c.id)
                     ], limit=1)
                     
                     nueva = False
                     if not tasa_actual:
                         self.env['res.currency.rate'].sudo().with_context(ctx).create({
-                            'currency_id': rec.id,
+                            'currency_id': target_currency.id,
                             'name': d,
                             'rate': odoo_rate,
                             'company_id': c.id,
@@ -520,10 +586,9 @@ class ResCurrency(models.Model):
                             nueva = True
 
                     if nueva:
-
                         channel_id.message_post(
                             body="Tasa HISTÓRICA recuperada para %s (%s): %s para la fecha %s." % (
-                                rec.name, c.name, odoo_rate, d.strftime("%d-%m-%Y")),
+                                target_currency.name, c.name, odoo_rate, d.strftime("%d-%m-%Y")),
                             message_type='notification',
                             subtype_xmlid='mail.mt_comment',
                         )
