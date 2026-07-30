@@ -259,83 +259,74 @@ class AccountMove(models.Model):
 
     def get_totals(self):
         self.ensure_one()
-        currency_name = self.company_id.currency_id.name
         tax_totals = self.tax_totals or {}
-
-        amount_untaxed = self.amount_untaxed
-        amount_tax = self.amount_tax
-        amount_total = self.amount_total
-
-        # Support LocVe Bimonetario
-        foreign_currency = getattr(self.company_id, 'foreign_currency_id', False)
-        foreign_rate = getattr(self, 'foreign_rate', 1.0) or 1.0
-
-        if currency_name == "VEF" or currency_name == "VES":
-            subtotal_val = amount_untaxed
-            total_val = amount_total
-            tax_val = amount_tax
-            exempt_val = sum(line.price_subtotal for line in self.invoice_line_ids if not line.tax_ids or all(t.amount == 0 for t in line.tax_ids))
-            taxable_val = subtotal_val - exempt_val
-
-            totals = {
-                "nroItems": str(len(self.invoice_line_ids)),
-                "montoGravadoTotal": str(round(taxable_val, 2)),
-                "montoExentoTotal": str(round(exempt_val, 2)),
-                "subtotal": str(round(subtotal_val, 2)),
-                "subtotalAntesDescuento": str(round(subtotal_val, 2)),
-                "totalAPagar": str(round(total_val, 2)),
-                "totalIVA": str(round(tax_val, 2)),
-                "montoTotalConIVA": str(round(total_val, 2)),
-                "totalDescuento": "0.00",
-                "impuestosSubtotal": self.get_tax_subtotals("VES"),
-                "totalIGTF": "0.00",
-                "totalIGTF_VES": "0.00",
-            }
-            foreign_totals = False
+        
+        # Identificar las monedas y la tasa de forma segura
+        rate = self.tax_today or 1.0
+        invoice_currency = self.currency_id
+        
+        # Determinar si la factura está en USD o Bs
+        is_usd = invoice_currency.name == 'USD'
+        
+        # Calcular los montos base en Bs (VES) y en Ref ($ / USD)
+        if is_usd:
+            # Factura en USD
+            subtotal_usd = self.amount_untaxed
+            total_usd = self.amount_total
+            tax_usd = self.amount_tax
+            
+            subtotal_ves = getattr(self, 'amount_untaxed_bs', 0.0) or (subtotal_usd * rate)
+            total_ves = getattr(self, 'amount_total_bs', 0.0) or (total_usd * rate)
+            tax_ves = total_ves - subtotal_ves
+            
+            exempt_usd = sum(line.price_subtotal for line in self.invoice_line_ids if not line.tax_ids or all(t.amount == 0 for t in line.tax_ids))
+            exempt_ves = exempt_usd * rate
         else:
-            # Foreign (USD) Primary
-            subtotal_usd = getattr(self, 'foreign_amount_untaxed', amount_untaxed)
-            total_usd = getattr(self, 'foreign_amount_total', amount_total)
+            # Factura en VES / Bs
+            subtotal_ves = self.amount_untaxed
+            total_ves = self.amount_total
+            tax_ves = self.amount_tax
+            
+            subtotal_usd = getattr(self, 'amount_untaxed_usd', 0.0) or (subtotal_ves / rate if rate > 0 else 0.0)
+            total_usd = getattr(self, 'amount_total_usd', 0.0) or (total_ves / rate if rate > 0 else 0.0)
             tax_usd = total_usd - subtotal_usd
-            exempt_usd = sum(getattr(line, 'foreign_subtotal', line.price_subtotal) for line in self.invoice_line_ids if not line.tax_ids or all(t.amount == 0 for t in line.tax_ids))
-            taxable_usd = subtotal_usd - exempt_usd
+            
+            exempt_ves = sum(line.price_subtotal for line in self.invoice_line_ids if not line.tax_ids or all(t.amount == 0 for t in line.tax_ids))
+            exempt_usd = exempt_ves / rate if rate > 0 else 0.0
 
-            subtotal_ves = amount_untaxed
-            total_ves = amount_total
-            tax_ves = amount_tax
-            exempt_ves = exempt_usd * foreign_rate
-            taxable_ves = subtotal_ves - exempt_ves
+        taxable_ves = subtotal_ves - exempt_ves
+        taxable_usd = subtotal_usd - exempt_usd
 
-            totals = {
-                "nroItems": str(len(self.invoice_line_ids)),
-                "montoGravadoTotal": str(round(taxable_ves, 2)),
-                "montoExentoTotal": str(round(exempt_ves, 2)),
-                "subtotal": str(round(subtotal_ves, 2)),
-                "subtotalAntesDescuento": str(round(subtotal_ves, 2)),
-                "totalAPagar": str(round(total_ves, 2)),
-                "totalIVA": str(round(tax_ves, 2)),
-                "montoTotalConIVA": str(round(total_ves, 2)),
-                "totalDescuento": "0.00",
-                "impuestosSubtotal": self.get_tax_subtotals("VES"),
-                "totalIGTF": "0.00",
-                "totalIGTF_VES": "0.00",
-            }
+        totals = {
+            "nroItems": str(len(self.invoice_line_ids.filtered(lambda l: not l.display_type))),
+            "montoGravadoTotal": str(round(taxable_ves, 2)),
+            "montoExentoTotal": str(round(exempt_ves, 2)),
+            "subtotal": str(round(subtotal_ves, 2)),
+            "subtotalAntesDescuento": str(round(subtotal_ves, 2)),
+            "totalAPagar": str(round(total_ves, 2)),
+            "totalIVA": str(round(tax_ves, 2)),
+            "montoTotalConIVA": str(round(total_ves, 2)),
+            "totalDescuento": "0.00",
+            "impuestosSubtotal": self.get_tax_subtotals("VES"),
+            "totalIGTF": "0.00",
+            "totalIGTF_VES": "0.00",
+        }
 
-            foreign_totals = {
-                "moneda": self.currency_id.name,
-                "tipoCambio": str(round(foreign_rate, 2)),
-                "montoGravadoTotal": str(round(taxable_usd, 2)),
-                "montoExentoTotal": str(round(exempt_usd, 2)),
-                "subtotal": str(round(subtotal_usd, 2)),
-                "subtotalAntesDescuento": str(round(subtotal_usd, 2)),
-                "totalAPagar": str(round(total_usd, 2)),
-                "totalIVA": str(round(tax_usd, 2)),
-                "montoTotalConIVA": str(round(total_usd, 2)),
-                "totalDescuento": "0.00",
-                "totalIGTF": "0.00",
-                "totalIGTF_VES": "0.00",
-                "impuestosSubtotal": self.get_tax_subtotals("USD"),
-            }
+        foreign_totals = {
+            "moneda": "USD",
+            "tipoCambio": str(round(rate, 2)),
+            "montoGravadoTotal": str(round(taxable_usd, 2)),
+            "montoExentoTotal": str(round(exempt_usd, 2)),
+            "subtotal": str(round(subtotal_usd, 2)),
+            "subtotalAntesDescuento": str(round(subtotal_usd, 2)),
+            "totalAPagar": str(round(total_usd, 2)),
+            "totalIVA": str(round(tax_usd, 2)),
+            "montoTotalConIVA": str(round(total_usd, 2)),
+            "totalDescuento": "0.00",
+            "totalIGTF": "0.00",
+            "totalIGTF_VES": "0.00",
+            "impuestosSubtotal": self.get_tax_subtotals("USD"),
+        }
 
         payment_forms = self.get_payment_methods()
         if payment_forms and len(payment_forms) <= 5:
@@ -345,11 +336,21 @@ class AccountMove(models.Model):
 
     def get_tax_subtotals(self, target_currency):
         tax_subtotals = []
+        rate = self.tax_today or 1.0
+        is_usd = self.currency_id.name == 'USD'
+        
         for line in self.invoice_line_ids:
+            if line.display_type in ('line_section', 'line_note'):
+                continue
             for tax in line.tax_ids:
-                if tax.amount > 0:
-                    code = "G" if tax.amount == 16.0 else ("R" if tax.amount == 8.0 else "A")
-                    base = line.price_subtotal if target_currency == "VES" else getattr(line, 'foreign_subtotal', line.price_subtotal)
+                if tax.amount >= 0:
+                    code = "G" if tax.amount == 16.0 else ("R" if tax.amount == 8.0 else ("E" if tax.amount == 0.0 else "A"))
+                    
+                    if target_currency == "VES":
+                        base = (line.price_subtotal * rate) if is_usd else line.price_subtotal
+                    else:
+                        base = line.price_subtotal if is_usd else (line.price_subtotal / rate if rate > 0 else 0.0)
+                        
                     tax_amount = base * (tax.amount / 100.0)
                     tax_subtotals.append({
                         "codigoTotalImp": code,
@@ -357,24 +358,19 @@ class AccountMove(models.Model):
                         "baseImponibleImp": str(round(base, 2)),
                         "valorTotalImp": str(round(tax_amount, 2)),
                     })
-                elif tax.amount == 0:
-                    base = line.price_subtotal if target_currency == "VES" else getattr(line, 'foreign_subtotal', line.price_subtotal)
-                    tax_subtotals.append({
-                        "codigoTotalImp": "E",
-                        "alicuotaImp": "0.00",
-                        "baseImponibleImp": str(round(base, 2)),
-                        "valorTotalImp": "0.00",
-                    })
         return tax_subtotals if tax_subtotals else [{
             "codigoTotalImp": "E",
             "alicuotaImp": "0.00",
-            "baseImponibleImp": str(round(self.amount_untaxed, 2)),
+            "baseImponibleImp": str(round(self.amount_untaxed * rate if is_usd else self.amount_untaxed, 2)) if target_currency == "VES" else str(round(self.amount_untaxed if is_usd else self.amount_untaxed / rate, 2)),
             "valorTotalImp": "0.00",
         }]
 
     def get_item_details(self):
         item_details = []
         line_number = 1
+        rate = self.tax_today or 1.0
+        is_usd = self.currency_id.name == 'USD'
+        
         for line in self.invoice_line_ids:
             if line.display_type in ('line_section', 'line_note'):
                 continue
@@ -384,9 +380,10 @@ class AccountMove(models.Model):
             tax_rate = taxes[0].amount if taxes else 0.0
             tax_code = tax_mapping.get(tax_rate, "G")
 
-            unit_price = round(line.price_unit, 2)
+            price_unit_ves = (line.price_unit * rate) if is_usd else line.price_unit
+            unit_price = round(price_unit_ves, 2)
             discount_amount = round((unit_price * (line.discount / 100.0)) * line.quantity, 2)
-            item_price = round(line.price_subtotal, 2)
+            item_price = round(unit_price * line.quantity, 2)
             price_before_discount = round(unit_price * line.quantity, 2)
 
             vat = round(item_price * (tax_rate / 100.0), 2)
