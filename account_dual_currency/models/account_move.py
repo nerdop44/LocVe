@@ -237,8 +237,15 @@ class AccountMove(models.Model):
     def _onchange_tasa_o_moneda(self):
         for rec in self:
             rate = rec.tax_today or 1.0
+            company = rec.company_id or rec.env.company
+            is_usd_company = company.currency_id.name == 'USD'
             for line in rec.invoice_line_ids:
                 if line.product_id:
+                    # Corregir desincronización de UI de price_unit_usd si es igual a price_unit en facturas VES
+                    if is_usd_company and rec.currency_id.name != 'USD':
+                        if line.price_unit_usd == line.price_unit or line.price_unit_usd > (line.product_id.list_price_usd * 2.0 if line.product_id.list_price_usd else 1000.0):
+                            line.price_unit_usd = line.product_id.list_price_usd or 0.0
+
                     if rec.currency_id.name == 'USD':
                         line.price_unit = line.price_unit_usd or line.product_id.list_price_usd or 0.0
                     else:

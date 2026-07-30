@@ -80,12 +80,18 @@ class AccountMoveLine(models.Model):
                 continue
             rate = line.move_id.tax_today or 1.0
             master_usd = line.product_id.list_price_usd or 0.0
-            list_price_bs = line.product_id.list_price_bs or 0.0
-            
-            if line.move_id.currency_id and line.move_id.currency_id.name == 'USD':
-                line.price_unit = master_usd
+            company = line.company_id or line.env.company
+            if company.currency_id.name == 'USD':
+                if line.move_id.currency_id and line.move_id.currency_id.name == 'USD':
+                    line.price_unit = master_usd
+                else:
+                    line.price_unit = master_usd * rate
             else:
-                line.price_unit = list_price_bs if list_price_bs > 0 else (master_usd * rate)
+                list_price_bs = line.product_id.list_price_bs or 0.0
+                if line.move_id.currency_id and line.move_id.currency_id.name == 'USD':
+                    line.price_unit = master_usd
+                else:
+                    line.price_unit = list_price_bs if list_price_bs > 0 else (master_usd * rate)
 
 
 
