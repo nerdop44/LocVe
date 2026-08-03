@@ -56,7 +56,7 @@
                         <span>Registro de Informacion Fiscal del Agente de Retención:</span>
                     </div>
                     <div>
-                        <span t-esc="res_company.vat"/>
+                        <span t-esc="(res_company.partner_id.prefix_vat or '') + (res_company.partner_id.vat or '')"/>
                     </div>
                 </div>
 
@@ -188,10 +188,8 @@
 
                         <!--Número de Factura -->
                         <div class="" style="width:7%;">
-                            <t t-if="line.move_id.move_type in ['out_invoice','out_contingence', 'in_invoice']">
-                                <!--<span t-esc="line.move_id.name"/>-->
-                                <span t-esc="line.move_id.ref or '--'"/>
-                            
+                            <t t-if="line.move_id.move_type in ['out_invoice','out_contingence', 'in_invoice', 'out_refund', 'in_refund', 'out_debit']">
+                                <span t-esc="line.move_id.name if line.move_id.move_type in ['out_invoice', 'out_refund', 'out_debit'] else (line.move_id.ref or line.move_id.name or '--')"/>
                             </t>
                             <t t-else="">
                                 <span>--</span>
@@ -411,12 +409,14 @@
         <div class="container" style="font-size:12px !important;">
             <div class="row text-center">
                 <div class="col-5" style="width:35%; margin-top:10px;">
-                    <!--Firma digital-->
-                    <div style="height:100px">
-                        <img style="max-height:120px;width:200px" t-if="retention.get_signature()"
+                    <!--Firma y Sello-->
+                    <div style="height:100px; display: flex; justify-content: center; align-items: center; gap: 10px;">
+                        <img style="max-height:100px; max-width:120px; object-fit: contain;" t-if="is_signed and retention.get_signature()"
                              t-att-src="'data:image/png;base64,%s' % retention.get_signature()"/>
+                        <img style="max-height:100px; max-width:120px; object-fit: contain;" t-if="is_signed and retention.get_stamp()"
+                             t-att-src="'data:image/png;base64,%s' % retention.get_stamp()"/>
                     </div>
-                    <!--Firma digital fin-->
+                    <!--Firma y Sello fin-->
                     <h6 style="text-align: center; margin: 30px 0;border-top: 1px solid #000;width:80%; padding-top:10px;">
                         Agente de Retención
                     </h6>
@@ -495,7 +495,7 @@
                         <span>No. R.I.F.:</span>
                     </div>
                     <div class="col-12" style="text-transform:uppercase">
-                        <span t-esc="res_company.vat"/>
+                        <span t-esc="(res_company.partner_id.prefix_vat or '') + (res_company.partner_id.vat or '')"/>
                     </div>
                 </div>
             </div>
@@ -591,9 +591,8 @@
                         </div>
                         <!-- Fact Nro -->
                         <div style="width:5%">
-                            <t t-if="line.move_id.move_type in ('in_invoice','in_refund','out_invoice','out_contingence','out_debit')">
-                                <!--<span t-esc="line.move_id.name"/>-->
-                                <span t-esc="line.move_id.ref or '--'"/>
+                            <t t-if="line.move_id.move_type in ('in_invoice','in_refund','out_invoice','out_contingence','out_debit','out_refund')">
+                                <span t-esc="line.move_id.name if line.move_id.move_type in ['out_invoice', 'out_refund', 'out_debit'] else (line.move_id.ref or line.move_id.name or '--')"/>
                             </t>
                             <t t-else="">
                                 <span>--</span>
@@ -742,12 +741,14 @@
                 </div>
 
                 <div class="col-5" style="width:35%; margin-top:10px;">
-                    <!--Firma digital-->
-                    <div style="height:100px">
-                        <img style="max-height:120px;width:200px" t-if="retention.get_signature()"
+                    <!--Firma y Sello-->
+                    <div style="height:100px; display: flex; justify-content: center; align-items: center; gap: 10px;">
+                        <img style="max-height:100px; max-width:120px; object-fit: contain;" t-if="is_signed and retention.get_signature()"
                              t-att-src="'data:image/png;base64,%s' % retention.get_signature()"/>
+                        <img style="max-height:100px; max-width:120px; object-fit: contain;" t-if="is_signed and retention.get_stamp()"
+                             t-att-src="'data:image/png;base64,%s' % retention.get_stamp()"/>
                     </div>
-                    <!--Firma digital fin-->
+                    <!--Firma y Sello fin-->
                     <h6 style="text-align: center; margin: 30px 0;border-top: 1px solid #000;width:80%; padding-top:10px;">
                         Firma del Agente de Retención
                     </h6>
@@ -760,6 +761,24 @@
     <template id="retention_voucher_template">
         <t t-call="web.html_container">
             <t t-foreach="docs" t-as="retention">
+                <t t-call="web.internal_layout">
+                    <div class="page">
+                        <t t-if="retention.type_retention == 'iva'">
+                            <t t-call="l10n_ve_payment_extension.report_iva_customer"/>
+                        </t>
+                        <t t-else="">
+                            <t t-call="l10n_ve_payment_extension.report_islr_customer"/>
+                        </t>
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+
+    <template id="retention_voucher_signed_template">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="retention">
+                <t t-set="is_signed" t-value="True"/>
                 <t t-call="web.internal_layout">
                     <div class="page">
                         <t t-if="retention.type_retention == 'iva'">

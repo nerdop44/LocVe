@@ -1942,11 +1942,19 @@ class AccountRetention(models.Model):
 
 
     def get_signature(self):
+        if self.company_id.signature_stamp_signature:
+            sig = self.company_id.signature_stamp_signature
+            return sig.decode('utf-8') if isinstance(sig, bytes) else sig
         config = self.env["signature.config"].search(
             [("active", "=", True), ("company_id", "=", self.company_id.id)],
             limit=1,
         )
         if config and config.signature:
-            return config.signature.decode()
-        else:
-            return False
+            return config.signature.decode() if isinstance(config.signature, bytes) else config.signature
+        return False
+
+    def get_stamp(self):
+        if self.company_id.signature_stamp_stamp:
+            stamp = self.company_id.signature_stamp_stamp
+            return stamp.decode('utf-8') if isinstance(stamp, bytes) else stamp
+        return False
