@@ -380,8 +380,8 @@ class AccountMove(models.Model):
         the move is edited.
         """
 
-        if 'name' in vals:
-            existing_record = self.search([('name', '=', vals['name']), ('id', '!=', self.id)], limit=1)
+        if vals.get('name'):
+            existing_record = self.search([('name', '=', vals['name']), ('id', 'not in', self.ids)], limit=1)
             if existing_record:
                 raise ValidationError(_("The operation cannot be completed: Another entry with the same name already exists."))
 
