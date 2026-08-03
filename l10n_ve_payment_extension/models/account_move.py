@@ -389,3 +389,11 @@ class AccountMoveRetention(models.Model):
             return []
 
         return retention_payment_move_ids.ids
+
+    @api.constrains('name', 'journal_id', 'state')
+    def _constrains_date_sequence(self):
+        # Evitar validación de secuencia si es un asiento de retención (ej. generado por el pago de retención)
+        retention_moves = self.filtered(lambda m: m.payment_id.is_retention or any(p.is_retention for p in m.payment_ids))
+        normal_moves = self - retention_moves
+        if normal_moves:
+            super(AccountMoveRetention, normal_moves)._constrains_date_sequence()
