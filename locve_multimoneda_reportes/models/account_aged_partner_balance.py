@@ -12,6 +12,15 @@ class AgedPartnerBalanceCustomHandler(models.AbstractModel):
         report = self.env['account.report'].browse(options['report_id'])
         report._check_groupby_fields((next_groupby.split(',') if next_groupby else []) + ([current_groupby] if current_groupby else []))
         currency_dif = options['currency_dif']
+        is_usd_company = self.env.company.currency_id.name == 'USD'
+        if is_usd_company:
+            balance_col = SQL("account_move_line.balance * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+            part_debit_amount_col = SQL("part_debit.amount_usd")
+            part_credit_amount_col = SQL("part_credit.amount_usd")
+        else:
+            balance_col = SQL("account_move_line.balance_usd")
+            part_debit_amount_col = SQL("part_debit.amount_usd")
+            part_credit_amount_col = SQL("part_credit.amount_usd")
         def minus_days(date_obj, days):
             return fields.Date.to_string(date_obj - relativedelta(days=days))
 
@@ -107,12 +116,12 @@ class AgedPartnerBalanceCustomHandler(models.AbstractModel):
                     select_period_queries.append(SQL("""
                         CASE WHEN period_table.period_index = %(i)s
                         THEN %(multiplicator)s * (
-                            SUM(ROUND(account_move_line.balance_usd, currency_table.precision))
-                            - COALESCE(SUM(ROUND(part_debit.amount_usd, currency_table.precision)), 0)
-                            + COALESCE(SUM(ROUND(part_credit.amount_usd, currency_table.precision)), 0)
+                            SUM(ROUND(%(balance_col)s, currency_table.precision))
+                            - COALESCE(SUM(ROUND(%(part_debit_amount_col)s, currency_table.precision)), 0)
+                            + COALESCE(SUM(ROUND(%(part_credit_amount_col)s, currency_table.precision)), 0)
                         )
                         ELSE 0 END AS period%(i)s
-                    """, i=i, multiplicator=-1 if internal_type == 'liability_payable' else 1))
+                    """, i=i, multiplicator=-1 if internal_type == 'liability_payable' else 1, balance_col=balance_col, part_debit_amount_col=part_debit_amount_col, part_credit_amount_col=part_credit_amount_col))
 
         tail_query, tail_params = report._get_engine_query_tail(offset, limit)
         
@@ -193,10 +202,10 @@ class AgedPartnerBalanceCustomHandler(models.AbstractModel):
                 - COALESCE(SUM(ROUND(part_debit.amount * currency_table.rate, currency_table.precision)), 0)
                 + COALESCE(SUM(ROUND(part_credit.amount * currency_table.rate, currency_table.precision)), 0)
             """) if currency_dif == self.env.company.currency_id.symbol or rate_mode == 'current' else SQL("""
-                SUM(ROUND(account_move_line.balance_usd, currency_table.precision))
-                - COALESCE(SUM(ROUND(part_debit.amount_usd, currency_table.precision)), 0)
-                + COALESCE(SUM(ROUND(part_credit.amount_usd, currency_table.precision)), 0)
-            """),
+                SUM(ROUND(%(balance_col)s, currency_table.precision))
+                - COALESCE(SUM(ROUND(%(part_debit_amount_col)s, currency_table.precision)), 0)
+                + COALESCE(SUM(ROUND(%(part_credit_amount_col)s, currency_table.precision)), 0)
+            """, balance_col=balance_col, part_debit_amount_col=part_debit_amount_col, part_credit_amount_col=part_credit_amount_col),
             tail_query=SQL(tail_query, *tail_params)
         )
 

@@ -33,6 +33,15 @@ class GeneralLedgerCustomHandler(models.AbstractModel):
         ct_sql = SQL("(%(subquery)s) AS currency_table", subquery=ct_sql_base)
         currency_dif = options['currency_dif']
         rate_mode = options.get('rate_mode', 'historical')
+        is_usd_company = self.env.company.currency_id.name == 'USD'
+        if is_usd_company:
+            debit_col = SQL("account_move_line.debit * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+            credit_col = SQL("account_move_line.credit * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+            balance_col = SQL("account_move_line.balance * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+        else:
+            debit_col = SQL("account_move_line.debit_usd")
+            credit_col = SQL("account_move_line.credit_usd")
+            balance_col = SQL("account_move_line.balance_usd")
         # ============================================
         # 1) Get sums for all accounts.
         # ============================================
@@ -80,9 +89,9 @@ class GeneralLedgerCustomHandler(models.AbstractModel):
                         MAX(account_move_line.date)                             AS max_date,
                         %(column_group_key)s                                    AS column_group_key,
                         COALESCE(SUM(0), 0.0)                                   AS amount_currency,
-                        SUM(ROUND(account_move_line.debit_usd, currency_table.precision))   AS debit,
-                        SUM(ROUND(account_move_line.credit_usd, currency_table.precision))  AS credit,
-                        SUM(ROUND(account_move_line.balance_usd, currency_table.precision)) AS balance
+                        SUM(ROUND(%(debit_col)s, currency_table.precision))   AS debit,
+                        SUM(ROUND(%(credit_col)s, currency_table.precision))  AS credit,
+                        SUM(ROUND(%(balance_col)s, currency_table.precision)) AS balance
                     FROM %(tables)s
                     LEFT JOIN %(ct_query)s ON currency_table.company_id = account_move_line.company_id
                     WHERE %(where_clause)s
@@ -91,7 +100,10 @@ class GeneralLedgerCustomHandler(models.AbstractModel):
                     column_group_key=column_group_key,
                     tables=query_obj.from_clause,
                     ct_query=ct_sql,
-                    where_clause=query_obj.where_clause
+                    where_clause=query_obj.where_clause,
+                    debit_col=debit_col,
+                    credit_col=credit_col,
+                    balance_col=balance_col
                 ))
             # ============================================
             # 2) Get sums for the unaffected earnings.
@@ -159,9 +171,9 @@ class GeneralLedgerCustomHandler(models.AbstractModel):
                                 NULL                                                    AS max_date,
                                 %(column_group_key)s                                    AS column_group_key,
                                 COALESCE(SUM(0), 0.0)                                   AS amount_currency,
-                                SUM(ROUND(account_move_line.debit_usd, currency_table.precision))   AS debit,
-                                SUM(ROUND(account_move_line.credit_usd, currency_table.precision))  AS credit,
-                                SUM(ROUND(account_move_line.balance_usd, currency_table.precision)) AS balance
+                                SUM(ROUND(%(debit_col)s, currency_table.precision))   AS debit,
+                                SUM(ROUND(%(credit_col)s, currency_table.precision))  AS credit,
+                                SUM(ROUND(%(balance_col)s, currency_table.precision)) AS balance
                             FROM %(tables)s
                             LEFT JOIN %(ct_query)s ON currency_table.company_id = account_move_line.company_id
                             WHERE %(where_clause)s
@@ -170,7 +182,10 @@ class GeneralLedgerCustomHandler(models.AbstractModel):
                             column_group_key=column_group_key,
                             tables=query_obj.from_clause,
                             ct_query=ct_sql,
-                            where_clause=query_obj.where_clause
+                            where_clause=query_obj.where_clause,
+                            debit_col=debit_col,
+                            credit_col=credit_col,
+                            balance_col=balance_col
                         ))
 
         return SQL(" UNION ALL ").join(queries) if queries else SQL()
@@ -194,6 +209,15 @@ class GeneralLedgerCustomHandler(models.AbstractModel):
             self.pool['account.journal'].name.translate else 'journal.name'
         account_name = f"COALESCE(account.name->>'{lang}', account.name->>'en_US')" if \
             self.pool['account.account'].name.translate else 'account.name'
+        is_usd_company = self.env.company.currency_id.name == 'USD'
+        if is_usd_company:
+            debit_col = SQL("account_move_line.debit * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+            credit_col = SQL("account_move_line.credit * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+            balance_col = SQL("account_move_line.balance * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+        else:
+            debit_col = SQL("account_move_line.debit_usd")
+            credit_col = SQL("account_move_line.credit_usd")
+            balance_col = SQL("account_move_line.balance_usd")
         for column_group_key, group_options in report._split_options_per_column_group(options).items():
             # Get sums for the account move lines.
             # period: [('date' <= options['date_to']), ('date', '>=', options['date_from'])]
@@ -305,9 +329,9 @@ class GeneralLedgerCustomHandler(models.AbstractModel):
                                 account_move_line.partner_id,
                                 account_move_line.currency_id,
                                 account_move_line.amount_currency,
-                                ROUND(account_move_line.debit_usd, currency_table.precision)   AS debit,
-                                ROUND(account_move_line.credit_usd, currency_table.precision)  AS credit,
-                                ROUND(account_move_line.balance_usd, currency_table.precision) AS balance,
+                                ROUND(%(debit_col)s, currency_table.precision)   AS debit,
+                                ROUND(%(credit_col)s, currency_table.precision)  AS credit,
+                                ROUND(%(balance_col)s, currency_table.precision) AS balance,
                                 move.name                               AS move_name,
                                 company.currency_id                     AS company_currency_id,
                                 partner.name                            AS partner_name,
@@ -334,7 +358,10 @@ class GeneralLedgerCustomHandler(models.AbstractModel):
                             column_group_key=column_group_key,
                             tables=query_obj.from_clause,
                             ct_query=ct_sql,
-                            where_clause=query_obj.where_clause
+                            where_clause=query_obj.where_clause,
+                            debit_col=debit_col,
+                            credit_col=credit_col,
+                            balance_col=balance_col
                         )
 
             queries.append(query)
@@ -356,6 +383,15 @@ class GeneralLedgerCustomHandler(models.AbstractModel):
         params = []
         currency_dif = options['currency_dif']
         rate_mode = options.get('rate_mode', 'historical')
+        is_usd_company = self.env.company.currency_id.name == 'USD'
+        if is_usd_company:
+            debit_col = SQL("account_move_line.debit * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+            credit_col = SQL("account_move_line.credit * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+            balance_col = SQL("account_move_line.balance * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+        else:
+            debit_col = SQL("account_move_line.debit_usd")
+            credit_col = SQL("account_move_line.credit_usd")
+            balance_col = SQL("account_move_line.balance_usd")
         
         for column_group_key, options_group in report._split_options_per_column_group(options).items():
             new_options = self._get_options_initial_balance(options_group)
@@ -417,9 +453,9 @@ class GeneralLedgerCustomHandler(models.AbstractModel):
                             NULL                                                                                  AS max_date,
                             %(column_group_key)s                                                                  AS column_group_key,
                             COALESCE(SUM(0), 0.0)                                                                 AS amount_currency,
-                            SUM(ROUND(account_move_line.debit_usd, currency_table.precision))   AS debit,
-                            SUM(ROUND(account_move_line.credit_usd, currency_table.precision))  AS credit,
-                            SUM(ROUND(account_move_line.balance_usd, currency_table.precision)) AS balance
+                            SUM(ROUND(%(debit_col)s, currency_table.precision))   AS debit,
+                            SUM(ROUND(%(credit_col)s, currency_table.precision))  AS credit,
+                            SUM(ROUND(%(balance_col)s, currency_table.precision)) AS balance
                     FROM %(tables)s
                     LEFT JOIN %(ct_query)s ON currency_table.company_id = account_move_line.company_id
                     WHERE %(where_clause)s
@@ -428,7 +464,10 @@ class GeneralLedgerCustomHandler(models.AbstractModel):
                     column_group_key=column_group_key,
                     tables=query_obj.from_clause,
                     ct_query=ct_sql,
-                    where_clause=query_obj.where_clause
+                    where_clause=query_obj.where_clause,
+                    debit_col=debit_col,
+                    credit_col=credit_col,
+                    balance_col=balance_col
                 ))
 
         self._cr.execute(SQL(" UNION ALL ").join(queries)) if queries else None

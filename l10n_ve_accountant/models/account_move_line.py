@@ -126,7 +126,10 @@ class AccountMoveLine(models.Model):
             if line.currency_id and line.foreign_currency_id and line.currency_id == line.foreign_currency_id:
                 line.foreign_price = line.price_unit
             else:
-                line.foreign_price = line.price_unit * line.foreign_inverse_rate
+                if line.company_id.currency_id.name == 'USD':
+                    line.foreign_price = line.price_unit * line.foreign_rate
+                else:
+                    line.foreign_price = line.price_unit * line.foreign_inverse_rate
 
     @api.depends("foreign_price", "quantity", "discount", "tax_ids", "price_unit")
     def _compute_foreign_subtotal(self):
@@ -243,8 +246,12 @@ class AccountMoveLine(models.Model):
                     line.foreign_credit = abs(balance) if balance > 0 else 0.0
                     continue
 
-                line.foreign_debit = line.debit * line.foreign_inverse_rate
-                line.foreign_credit = line.credit * line.foreign_inverse_rate
+                if line.company_id.currency_id.name == 'USD':
+                    line.foreign_debit = line.debit * line.foreign_rate
+                    line.foreign_credit = line.credit * line.foreign_rate
+                else:
+                    line.foreign_debit = line.debit * line.foreign_inverse_rate
+                    line.foreign_credit = line.credit * line.foreign_inverse_rate
                 continue
 
             if line.display_type == "product":
@@ -465,9 +472,14 @@ class AccountMoveLine(models.Model):
                 handle_price_include = True
                 quantity = line.quantity
             else:
-                amount_currency = (
-                    line.amount_currency * line.move_id.foreign_inverse_rate
-                )
+                if line.company_id.currency_id.name == 'USD':
+                    amount_currency = (
+                        line.amount_currency * line.move_id.foreign_rate
+                    )
+                else:
+                    amount_currency = (
+                        line.amount_currency * line.move_id.foreign_inverse_rate
+                    )
                 handle_price_include = False
                 quantity = 1
 

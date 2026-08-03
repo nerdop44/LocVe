@@ -579,8 +579,12 @@ class AccountMove(models.Model):
                 )
 
                 if not (lines_with_same_tax and line_name):
-                    line.foreign_debit = line.debit * self.foreign_inverse_rate
-                    line.foreign_credit = line.credit * self.foreign_inverse_rate
+                    if self.company_id.currency_id.name == 'USD':
+                        line.foreign_debit = line.debit * self.foreign_rate
+                        line.foreign_credit = line.credit * self.foreign_rate
+                    else:
+                        line.foreign_debit = line.debit * self.foreign_inverse_rate
+                        line.foreign_credit = line.credit * self.foreign_inverse_rate
                     continue
 
                 def amount_by_line(lines, balance="debit"):

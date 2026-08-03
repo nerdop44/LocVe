@@ -30,11 +30,18 @@ class AccountAsset(models.Model):
     def _compute_values_ref(self):
         for asset in self:
             if asset.currency_id_dif != asset.currency_id:
-                asset.original_value_ref = asset.original_value / asset.tax_today
-                asset.value_residual_ref = asset.value_residual / asset.tax_today
-                asset.salvage_value_ref = asset.salvage_value / asset.tax_today
-                asset.book_value_ref = asset.book_value / asset.tax_today
-                asset.already_depreciated_amount_import_ref = asset.already_depreciated_amount_import / asset.tax_today
+                if asset.company_id.currency_id.name == 'USD':
+                    asset.original_value_ref = asset.original_value * asset.tax_today
+                    asset.value_residual_ref = asset.value_residual * asset.tax_today
+                    asset.salvage_value_ref = asset.salvage_value * asset.tax_today
+                    asset.book_value_ref = asset.book_value * asset.tax_today
+                    asset.already_depreciated_amount_import_ref = asset.already_depreciated_amount_import * asset.tax_today
+                else:
+                    asset.original_value_ref = asset.original_value / asset.tax_today if asset.tax_today > 0 else 0
+                    asset.value_residual_ref = asset.value_residual / asset.tax_today if asset.tax_today > 0 else 0
+                    asset.salvage_value_ref = asset.salvage_value / asset.tax_today if asset.tax_today > 0 else 0
+                    asset.book_value_ref = asset.book_value / asset.tax_today if asset.tax_today > 0 else 0
+                    asset.already_depreciated_amount_import_ref = asset.already_depreciated_amount_import / asset.tax_today if asset.tax_today > 0 else 0
             else:
                 asset.original_value_ref = asset.original_value
                 asset.value_residual_ref = asset.value_residual
@@ -46,7 +53,10 @@ class AccountAsset(models.Model):
     def _compute_already_depreciated(self):
         for asset in self:
             if asset.currency_id_dif != asset.currency_id:
-                asset.already_depreciated_amount_import_ref = asset.already_depreciated_amount_import / asset.tax_today
+                if asset.company_id.currency_id.name == 'USD':
+                    asset.already_depreciated_amount_import_ref = asset.already_depreciated_amount_import * asset.tax_today
+                else:
+                    asset.already_depreciated_amount_import_ref = asset.already_depreciated_amount_import / asset.tax_today if asset.tax_today > 0 else 0
             else:
                 asset.already_depreciated_amount_import_ref = asset.already_depreciated_amount_import
 

@@ -19,6 +19,15 @@ class PartnerLedgerCustomHandler(models.AbstractModel):
         ct_sql_base = self.env['res.currency']._get_simple_currency_table(options)
         ct_sql = SQL("(%(subquery)s) AS currency_table", subquery=ct_sql_base)
         currency_dif = options['currency_dif']
+        is_usd_company = self.env.company.currency_id.name == 'USD'
+        if is_usd_company:
+            debit_col = SQL("account_move_line.debit * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+            credit_col = SQL("account_move_line.credit * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+            balance_col = SQL("account_move_line.balance * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+        else:
+            debit_col = SQL("account_move_line.debit_usd")
+            credit_col = SQL("account_move_line.credit_usd")
+            balance_col = SQL("account_move_line.balance_usd")
         for column_group_key, column_group_options in report._split_options_per_column_group(options).items():
             # Get sums for the initial balance.
             # period: [('date' <= options['date_from'] - 1)]
@@ -48,9 +57,9 @@ class PartnerLedgerCustomHandler(models.AbstractModel):
                     SELECT
                         account_move_line.partner_id,
                         %(column_group_key)s                                                                  AS column_group_key,
-                        SUM(ROUND(account_move_line.debit_usd, currency_table.precision))   AS debit,
-                        SUM(ROUND(account_move_line.credit_usd, currency_table.precision))  AS credit,
-                        SUM(ROUND(account_move_line.balance_usd, currency_table.precision)) AS balance
+                        SUM(ROUND(%(debit_col)s, currency_table.precision))   AS debit,
+                        SUM(ROUND(%(credit_col)s, currency_table.precision))  AS credit,
+                        SUM(ROUND(%(balance_col)s, currency_table.precision)) AS balance
                     FROM %(tables)s
                     LEFT JOIN %(ct_query)s ON currency_table.company_id = account_move_line.company_id
                     WHERE %(where_clause)s
@@ -59,7 +68,10 @@ class PartnerLedgerCustomHandler(models.AbstractModel):
                     column_group_key=column_group_key,
                     tables=query_obj.from_clause,
                     ct_query=ct_sql,
-                    where_clause=query_obj.where_clause
+                    where_clause=query_obj.where_clause,
+                    debit_col=debit_col,
+                    credit_col=credit_col,
+                    balance_col=balance_col
                 ))
 
         self._cr.execute(SQL(" UNION ALL ").join(queries)) if queries else None
@@ -146,6 +158,15 @@ class PartnerLedgerCustomHandler(models.AbstractModel):
         ct_sql = SQL("(%(subquery)s) AS currency_table", subquery=ct_sql_base)
         currency_dif = options['currency_dif']
         rate_mode = options.get('rate_mode', 'historical')
+        is_usd_company = self.env.company.currency_id.name == 'USD'
+        if is_usd_company:
+            debit_col = SQL("account_move_line.debit * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+            credit_col = SQL("account_move_line.credit * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+            balance_col = SQL("account_move_line.balance * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+        else:
+            debit_col = SQL("account_move_line.debit_usd")
+            credit_col = SQL("account_move_line.credit_usd")
+            balance_col = SQL("account_move_line.balance_usd")
         for column_group_key, column_group_options in report._split_options_per_column_group(options).items():
             query_obj = report._get_report_query(column_group_options, 'normal')
             
@@ -191,9 +212,9 @@ class PartnerLedgerCustomHandler(models.AbstractModel):
                         SELECT
                             account_move_line.partner_id                                                          AS groupby,
                             %(column_group_key)s                                                                  AS column_group_key,
-                            SUM(ROUND(account_move_line.debit_usd, currency_table.precision))   AS debit,
-                            SUM(ROUND(account_move_line.credit_usd, currency_table.precision))  AS credit,
-                            SUM(ROUND(account_move_line.balance_usd, currency_table.precision)) AS balance
+                            SUM(ROUND(%(debit_col)s, currency_table.precision))   AS debit,
+                            SUM(ROUND(%(credit_col)s, currency_table.precision))  AS credit,
+                            SUM(ROUND(%(balance_col)s, currency_table.precision)) AS balance
                         FROM %(tables)s
                         LEFT JOIN %(ct_query)s ON currency_table.company_id = account_move_line.company_id
                         WHERE %(where_clause)s
@@ -202,7 +223,10 @@ class PartnerLedgerCustomHandler(models.AbstractModel):
                         column_group_key=column_group_key,
                         tables=query_obj.from_clause,
                         ct_query=ct_sql,
-                        where_clause=query_obj.where_clause
+                        where_clause=query_obj.where_clause,
+                        debit_col=debit_col,
+                        credit_col=credit_col,
+                        balance_col=balance_col
                     ))
 
         return SQL(" UNION ALL ").join(queries), []
@@ -235,6 +259,15 @@ class PartnerLedgerCustomHandler(models.AbstractModel):
             self.pool['account.account'].name.translate else 'account.name'
         report = self.env.ref('account_reports.partner_ledger_report')
         currency_dif = options['currency_dif']
+        is_usd_company = self.env.company.currency_id.name == 'USD'
+        if is_usd_company:
+            debit_col = SQL("account_move_line.debit * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+            credit_col = SQL("account_move_line.credit * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+            balance_col = SQL("account_move_line.balance * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+        else:
+            debit_col = SQL("account_move_line.debit_usd")
+            credit_col = SQL("account_move_line.credit_usd")
+            balance_col = SQL("account_move_line.balance_usd")
         for column_group_key, group_options in report._split_options_per_column_group(options).items():
             query_obj = report._get_report_query(group_options, 'strict_range')
 
@@ -352,9 +385,9 @@ class PartnerLedgerCustomHandler(models.AbstractModel):
                         account_move_line.currency_id,
                         0 as amount_currency,
                         account_move_line.matching_number,
-                        ROUND(account_move_line.debit_usd, currency_table.precision)   AS debit,
-                        ROUND(account_move_line.credit_usd, currency_table.precision)  AS credit,
-                        ROUND(account_move_line.balance_usd, currency_table.precision) AS balance,
+                        ROUND(%(debit_col)s, currency_table.precision)   AS debit,
+                        ROUND(%(credit_col)s, currency_table.precision)  AS credit,
+                        ROUND(%(balance_col)s, currency_table.precision) AS balance,
                         account_move.name                                                                AS move_name,
                         account_move.move_type                                                           AS move_type,
                         account.code                                                                     AS account_code,
@@ -379,7 +412,10 @@ class PartnerLedgerCustomHandler(models.AbstractModel):
                     tables=query_obj.from_clause,
                     ct_query=ct_sql,
                     where_clause=query_obj.where_clause,
-                    directly_linked_aml_partner_clause=SQL(directly_linked_aml_partner_clause, *directly_linked_aml_partner_params)
+                    directly_linked_aml_partner_clause=SQL(directly_linked_aml_partner_clause, *directly_linked_aml_partner_params),
+                    debit_col=debit_col,
+                    credit_col=credit_col,
+                    balance_col=balance_col
                 ))
 
                 # For the move lines linked to no partner, but reconciled with this partner.

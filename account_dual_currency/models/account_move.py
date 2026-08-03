@@ -615,7 +615,10 @@ class AccountMove(models.Model):
                 rec.amount_total_usd = total_usd
                 rec.amount_untaxed_usd = total_usd
                 
-                rec.amount_total_bs = sum(rec.line_ids.mapped('debit'))
+                if rec.company_id.currency_id.name == 'USD':
+                    rec.amount_total_bs = sum(aml.debit * rec.tax_today for aml in rec.line_ids)
+                else:
+                    rec.amount_total_bs = sum(rec.line_ids.mapped('debit'))
                 rec.amount_untaxed_bs = rec.amount_total_bs
 
     @api.depends('move_type', 'line_ids.amount_residual_usd')
@@ -642,8 +645,7 @@ class AccountMove(models.Model):
                         'name': counterpart_line.name,
                         'journal_name': counterpart_line.journal_id.name,
                         'amount': reconciled_partial['amount'],
-                        'currency_id': move.company_id.currency_id_dif.id if move.company_id.currency_id_dif else
-                        move.company_id.currency_id.id,
+                        'currency_id': move.company_id.currency_id.id if move.company_id.currency_id.name == 'USD' else (move.company_id.currency_id_dif.id if move.company_id.currency_id_dif else move.company_id.currency_id.id),
                         'date': counterpart_line.date,
                         'partial_id': reconciled_partial['partial_id'],
                         'account_payment_id': counterpart_line.payment_id.id,

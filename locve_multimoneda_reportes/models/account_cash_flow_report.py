@@ -12,6 +12,11 @@ class CashFlowReportCustomHandler(models.AbstractModel):
         queries = []
         currency_dif = options.get('currency_dif', self.env.company.currency_id.symbol)
         currency_table_query = self.env['res.currency']._get_query_currency_table(options)
+        is_usd_company = self.env.company.currency_id.name == 'USD'
+        if is_usd_company:
+            balance_col = SQL("account_move_line.balance * COALESCE(NULLIF(account_move_line.tax_today, 0), 1.0)")
+        else:
+            balance_col = SQL("account_move_line.balance_usd")
         if self.pool['account.account'].name.translate:
             lang = self.env.user.lang or get_lang(self.env).code
             account_name_str = f"COALESCE(account_account.name->>'{lang}', account_account.name->>'en_US')"
@@ -50,7 +55,7 @@ class CashFlowReportCustomHandler(models.AbstractModel):
                         account_move_line.account_id,
                         account_account.code AS account_code,
                         %(account_name)s AS account_name,
-                        SUM(account_move_line.balance_usd) AS balance
+                        SUM(%(balance_col)s) AS balance
                     FROM %(tables)s
                     JOIN account_account
                         ON account_account.id = account_move_line.account_id
@@ -63,7 +68,8 @@ class CashFlowReportCustomHandler(models.AbstractModel):
                     account_name=SQL(account_name_str),
                     tables=query_obj.from_clause,
                     ct_query=currency_table_query,
-                    where_clause=query_obj.where_clause
+                    where_clause=query_obj.where_clause,
+                    balance_col=balance_col
                 ))
 
         self._cr.execute(SQL(' UNION ALL ').join(queries)) if queries else None

@@ -100,47 +100,50 @@ class AccountPaymentRegister(models.TransientModel):
     @api.depends('amount','tax_today')
     def _compute_payment_difference(self):
         for wizard in self:
-            wizard.amount_usd = wizard.amount / (wizard.tax_today if wizard.tax_today > 0 else 1)
-            if wizard.source_currency_id == wizard.currency_id:
-                # Same currency.
-                wizard.payment_difference = wizard.source_amount_currency - wizard.amount
-                wizard.payment_difference_usd = wizard.amount_residual_usd - (wizard.amount / (wizard.tax_today if wizard.tax_today > 0 else 1))
-                wizard.payment_difference_bs = 0
-                if wizard.currency_id == wizard.company_id.currency_id_dif:
-                    wizard.payment_difference_usd = wizard.amount_residual_usd - wizard.amount
-                    wizard.payment_difference_bs = (wizard.amount_residual_usd / wizard.tax_invoice) - (wizard.amount / (wizard.tax_today if wizard.tax_today > 0 else 1))
-
-            elif wizard.currency_id == wizard.company_id.currency_id:
-                # Payment expressed on the company's currency.
-                #
-                #
-                #
-                #
-                #
-                #
-                #
-                if wizard.source_currency_id == wizard.company_id.currency_id:
-                    wizard.payment_difference = wizard.source_amount - wizard.amount
-                else:
-                    wizard.payment_difference = (wizard.source_amount * wizard.tax_invoice) - wizard.amount
-                    wizard.payment_difference_usd = wizard.amount_residual_usd - (wizard.amount / (wizard.tax_today if wizard.tax_today > 0 else 1))
+            is_usd_company = wizard.company_id.currency_id.name == 'USD'
+            
+            # Amount in USD (payment currency converted to USD)
+            if wizard.currency_id.name == 'USD':
+                wizard.amount_usd = wizard.amount
             else:
-                # Foreign currency on payment different than the one set on the journal entries.
-                #amount_payment_currency = wizard.company_id.currency_id._convert(wizard.source_amount,
-                #                                                                 wizard.currency_id, wizard.company_id,
-                #                                                                 wizard.payment_date)
-                #amount_payment_currency = wizard.source_amount * wizard.tax_today
-                wizard.payment_difference = wizard.amount_residual_usd - wizard.amount
-                #
-                #
-                #
-                #
-                #
-                #
-                if wizard.tax_today == wizard.tax_invoice and wizard.amount_residual_usd == wizard.amount and wizard.currency_id == wizard.company_id.currency_id_dif:
-                    wizard.payment_difference_bs = 0
+                wizard.amount_usd = wizard.amount / (wizard.tax_today if wizard.tax_today > 0 else 1)
+            
+            # Payment difference in payment currency
+            if wizard.source_currency_id == wizard.currency_id:
+                wizard.payment_difference = wizard.source_amount_currency - wizard.amount
+            else:
+                if wizard.currency_id == wizard.company_id.currency_id:
+                    if wizard.source_currency_id == wizard.company_id.currency_id:
+                        wizard.payment_difference = wizard.source_amount - wizard.amount
+                    else:
+                        if is_usd_company:
+                            wizard.payment_difference = (wizard.source_amount_currency / (wizard.tax_invoice if wizard.tax_invoice > 0 else 1)) - wizard.amount
+                        else:
+                            wizard.payment_difference = (wizard.source_amount_currency * wizard.tax_invoice) - wizard.amount
                 else:
-                    wizard.payment_difference_bs = wizard.source_amount - (wizard.amount * wizard.tax_today)
+                    if is_usd_company:
+                        wizard.payment_difference = (wizard.amount_residual_usd * (wizard.tax_invoice if wizard.tax_invoice > 0 else 1)) - wizard.amount
+                    else:
+                        wizard.payment_difference = wizard.amount_residual_usd - wizard.amount
+
+            # USD Difference
+            wizard.payment_difference_usd = wizard.amount_residual_usd - wizard.amount_usd
+
+            # BS Difference
+            if is_usd_company:
+                residual_bs = wizard.amount_residual_usd * wizard.tax_invoice
+                if wizard.currency_id.name == 'USD':
+                    payment_bs = wizard.amount * wizard.tax_today
+                else:
+                    payment_bs = wizard.amount
+                wizard.payment_difference_bs = residual_bs - payment_bs
+            else:
+                residual_bs = wizard.source_amount
+                if wizard.currency_id.name == 'USD':
+                    payment_bs = wizard.amount * wizard.tax_today
+                else:
+                    payment_bs = wizard.amount
+                wizard.payment_difference_bs = residual_bs - payment_bs
 
                 #
 

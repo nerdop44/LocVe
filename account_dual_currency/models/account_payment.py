@@ -46,12 +46,20 @@ class AccountPayment(models.Model):
     def _currency_equal(self):
         for rec in self:
             currency_equal = rec.currency_id_company != rec.currency_id
-            if currency_equal:
-                rec.amount_local = rec.amount * rec.tax_today
-                rec.amount_ref = rec.amount
+            if rec.currency_id_company.name == 'USD':
+                if currency_equal:
+                    rec.amount_local = rec.amount / rec.tax_today if rec.tax_today > 0 else 0
+                    rec.amount_ref = rec.amount
+                else:
+                    rec.amount_local = rec.amount
+                    rec.amount_ref = rec.amount * rec.tax_today
             else:
-                rec.amount_local = rec.amount
-                rec.amount_ref = (rec.amount / rec.tax_today) if rec.amount > 0 and rec.tax_today > 0 else 0
+                if currency_equal:
+                    rec.amount_local = rec.amount * rec.tax_today
+                    rec.amount_ref = rec.amount
+                else:
+                    rec.amount_local = rec.amount
+                    rec.amount_ref = (rec.amount / rec.tax_today) if rec.amount > 0 and rec.tax_today > 0 else 0
             rec.currency_equal = currency_equal
 
             if rec.aplicar_igtf_divisa:

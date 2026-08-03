@@ -16,6 +16,11 @@ class JournalReportCustomHandler(models.AbstractModel):
         queries = []
         currency_dif = options['currency_dif']
         report = self.env.ref('account_reports.journal_report')
+        is_usd_company = self.env.company.currency_id.name == 'USD'
+        if is_usd_company:
+            balance_col = SQL('"account_move_line".balance * COALESCE(NULLIF("account_move_line".tax_today, 0), 1.0)')
+        else:
+            balance_col = SQL('"account_move_line".balance_usd')
         for column_group_key, options_group in report._split_options_per_column_group(options).items():
             new_options = self.env['account.general.ledger.report.handler']._get_options_initial_balance(options_group)  # Same options as the general ledger
             query_obj = report._get_report_query(new_options, 'normal', domain=[('journal_id', '=', journal_id)])
@@ -38,7 +43,7 @@ class JournalReportCustomHandler(models.AbstractModel):
                 queries.append(SQL("""
                     SELECT
                         %(column_group_key)s AS column_group_key,
-                        sum("account_move_line".balance_usd) as balance
+                        sum(%(balance_col)s) as balance
                     FROM %(tables)s
                     JOIN account_journal journal ON journal.id = "account_move_line".journal_id AND "account_move_line".account_id = journal.default_account_id
                     WHERE %(where_clause)s
@@ -46,7 +51,8 @@ class JournalReportCustomHandler(models.AbstractModel):
                 """,
                     column_group_key=column_group_key,
                     tables=query_obj.from_clause,
-                    where_clause=query_obj.where_clause
+                    where_clause=query_obj.where_clause,
+                    balance_col=balance_col
                 ))
 
         self._cr.execute(SQL(" UNION ALL ").join(queries)) if queries else None
@@ -72,6 +78,15 @@ class JournalReportCustomHandler(models.AbstractModel):
         
         sort_by_date = options.get('sort_by_date')
         report = self.env.ref('account_reports.journal_report')
+        is_usd_company = self.env.company.currency_id.name == 'USD'
+        if is_usd_company:
+            debit_col = SQL('"account_move_line".debit * COALESCE(NULLIF("account_move_line".tax_today, 0), 1.0)')
+            credit_col = SQL('"account_move_line".credit * COALESCE(NULLIF("account_move_line".tax_today, 0), 1.0)')
+            balance_col = SQL('"account_move_line".balance * COALESCE(NULLIF("account_move_line".tax_today, 0), 1.0)')
+        else:
+            debit_col = SQL('"account_move_line".debit_usd')
+            credit_col = SQL('"account_move_line".credit_usd')
+            balance_col = SQL('"account_move_line".balance_usd')
         for column_group_key, options_group in report._split_options_per_column_group(options).items():
             # Override any forced options: We want the ones given in the options
             options_group['date'] = options['date']
@@ -164,9 +179,9 @@ class JournalReportCustomHandler(models.AbstractModel):
                         acc.code as account_code,
                         %(acc_name)s as account_name,
                         acc.account_type as account_type,
-                        COALESCE("account_move_line".debit_usd, 0) as debit,
-                        COALESCE("account_move_line".credit_usd, 0) as credit,
-                        COALESCE("account_move_line".balance_usd, 0) as balance,
+                        COALESCE(%(debit_col)s, 0) as debit,
+                        COALESCE(%(credit_col)s, 0) as credit,
+                        COALESCE(%(balance_col)s, 0) as balance,
                         %(j_name)s as journal_name,
                         j.code as journal_code,
                         j.type as journal_type,
@@ -209,7 +224,10 @@ class JournalReportCustomHandler(models.AbstractModel):
                     tag_name=SQL(tag_name_str),
                     tables=query_obj.from_clause,
                     where_clause=query_obj.where_clause,
-                    order_by=SQL(" am.date, am.name,") if sort_by_date else SQL(" am.name , am.date,")
+                    order_by=SQL(" am.date, am.name,") if sort_by_date else SQL(" am.name , am.date,"),
+                    debit_col=debit_col,
+                    credit_col=credit_col,
+                    balance_col=balance_col
                 ))
 
         # 1.2.Fetch data from DB
@@ -246,7 +264,11 @@ class JournalReportCustomHandler(models.AbstractModel):
         country_name_str = f"COALESCE(country.name->>'{lang}', country.name->>'en_US')"
         tag_name_str = f"COALESCE(tag.name->>'{lang}', tag.name->>'en_US')" if \
             self.pool['account.account.tag'].name.translate else 'tag.name'
-            
+        is_usd_company = self.env.company.currency_id.name == 'USD'
+        if is_usd_company:
+            balance_col = SQL('"account_move_line".balance * COALESCE(NULLIF("account_move_line".tax_today, 0), 1.0)')
+        else:
+            balance_col = SQL('"account_move_line".balance_usd')
         if currency_dif == self.env.company.currency_id.symbol:
             query = SQL("""
                 WITH tag_info (country_name, tag_id, tag_name, tag_sign, balance) as (
@@ -289,7 +311,7 @@ class JournalReportCustomHandler(models.AbstractModel):
                         tag.id,
                         %(tag_name)s AS name,
                         CASE WHEN tag.tax_negate IS TRUE THEN '-' ELSE '+' END,
-                        SUM(COALESCE("account_move_line".balance_usd, 0)
+                        SUM(COALESCE(%(balance_col)s, 0)
                             * CASE WHEN "account_move_line".tax_tag_invert THEN -1 ELSE 1 END
                             ) AS balance
                     FROM account_account_tag tag
@@ -313,7 +335,8 @@ class JournalReportCustomHandler(models.AbstractModel):
                 country_name=SQL(country_name_str),
                 tag_name=SQL(tag_name_str),
                 tables=tables_sql,
-                where_clause=where_sql
+                where_clause=where_sql,
+                balance_col=balance_col
             )
 
         self._cr.execute(query)

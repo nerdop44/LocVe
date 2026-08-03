@@ -145,7 +145,10 @@ class AccountRetentionIvaLine(models.Model):
     def _compute_foreign_iva_amount(self):
         for rec in self:
             if rec.foreign_currency_id and rec.foreign_currency_id != rec.company_currency_id and rec.foreign_currency_rate:
-                rec.foreign_iva_amount = rec.iva_amount / rec.foreign_currency_rate
+                if rec.company_currency_id.name == 'USD':
+                    rec.foreign_iva_amount = rec.iva_amount * rec.foreign_currency_rate
+                else:
+                    rec.foreign_iva_amount = rec.iva_amount / rec.foreign_currency_rate
             else:
                 rec.foreign_iva_amount = rec.iva_amount
 
@@ -320,7 +323,10 @@ class AccountRetentionIslrLine(models.Model):
     def _compute_foreign_iva_amount(self):
         for rec in self:
             if rec.foreign_currency_id and rec.foreign_currency_id != rec.company_currency_id and rec.foreign_currency_rate:
-                rec.foreign_iva_amount = rec.iva_amount / rec.foreign_currency_rate
+                if rec.company_currency_id.name == 'USD':
+                    rec.foreign_iva_amount = rec.iva_amount * rec.foreign_currency_rate
+                else:
+                    rec.foreign_iva_amount = rec.iva_amount / rec.foreign_currency_rate
             else:
                 rec.foreign_iva_amount = rec.iva_amount
 
@@ -484,7 +490,10 @@ class AccountRetentionMunicipalLine(models.Model):
     def _compute_foreign_iva_amount(self):
         for rec in self:
             if rec.foreign_currency_id and rec.foreign_currency_id != rec.company_currency_id and rec.foreign_currency_rate:
-                rec.foreign_iva_amount = rec.iva_amount / rec.foreign_currency_rate
+                if rec.company_currency_id.name == 'USD':
+                    rec.foreign_iva_amount = rec.iva_amount * rec.foreign_currency_rate
+                else:
+                    rec.foreign_iva_amount = rec.iva_amount / rec.foreign_currency_rate
             else:
                 rec.foreign_iva_amount = rec.iva_amount
 
