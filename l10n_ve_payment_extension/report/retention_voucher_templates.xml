@@ -56,7 +56,7 @@
                         <span>Registro de Informacion Fiscal del Agente de Retención:</span>
                     </div>
                     <div>
-                        <span t-esc="(res_company.partner_id.prefix_vat or '') + (res_company.partner_id.vat or '')"/>
+                        <span t-esc="res_company.partner_id.full_vat or ''"/>
                     </div>
                 </div>
 
@@ -88,14 +88,14 @@
                 <div class="col-6">
                     <span>Nombre o Razon Social del Sujeto Retenido</span>
                     <div>
-                        <span t-esc="retention.partner_id.name"/>
+                        <span t-esc="retention.beneficiary_partner_id.name"/>
                     </div>
                 </div>
                 <div class="col-6">
                     <span>Registro de Información Fiscal del Sujeto Retenido (R.I.F)</span>
                     <div>
                         <span style="text-transform:uppercase"
-                              t-esc="retention.partner_id.prefix_vat+retention.partner_id.vat"/>
+                              t-esc="retention.beneficiary_partner_id.full_vat or ''"/>
                     </div>
                 </div>
             </div>
@@ -104,10 +104,10 @@
                 <div class="col-6">
                     <span>Direccion Fiscal del Sujeto Retenido</span>
                     <div>
-                        <span t-esc="retention.partner_id.street"/>
-                        <t t-if="retention.partner_id.street2">
+                        <span t-esc="retention.beneficiary_partner_id.street"/>
+                        <t t-if="retention.beneficiary_partner_id.street2">
                             ,
-                            <span t-esc="retention.partner_id.street2"/>
+                            <span t-esc="retention.beneficiary_partner_id.street2"/>
                         </t>
                     </div>
                 </div>
@@ -448,10 +448,13 @@
                 </div>
                 <div class="col-8">
                     <div class="col-12">
-                        <h6>COMPROBANTE DE RETENCIÓN DE ISLR</h6>
+                        <h6 t-if="retention.type_retention == 'islr'">COMPROBANTE DE RETENCIÓN DE ISLR</h6>
+                        <h6 t-elif="retention.type_retention == 'municipal'">COMPROBANTE DE RETENCIÓN DE IMPUESTO MUNICIPAL</h6>
+                        <h6 t-else="">COMPROBANTE DE RETENCIÓN</h6>
                     </div>
                     <div class="col-12">
-                        <span>Art. 24 del Drecreto 1808 Según G.O Nro 36.203 de fecha de mayo de 1997</span>
+                        <span t-if="retention.type_retention == 'islr'">Art. 24 del Drecreto 1808 Según G.O Nro 36.203 de fecha de mayo de 1997</span>
+                        <span t-elif="retention.type_retention == 'municipal'">Retención de Impuestos sobre Actividades Económicas de la Compañía</span>
                     </div>
                 <br />
                 <div class="col-12 row justify-content-end" style="margin-top:8px">
@@ -495,7 +498,7 @@
                         <span>No. R.I.F.:</span>
                     </div>
                     <div class="col-12" style="text-transform:uppercase">
-                        <span t-esc="(res_company.partner_id.prefix_vat or '') + (res_company.partner_id.vat or '')"/>
+                         <span t-esc="res_company.partner_id.full_vat or ''"/>
                     </div>
                 </div>
             </div>
@@ -516,7 +519,7 @@
                         <span>Contribuyente:</span>
                     </div>
                     <div class="col-12">
-                        <span style="text-transform:uppercase" t-esc="retention.partner_id.name"/>
+                        <span style="text-transform:uppercase" t-esc="retention.beneficiary_partner_id.name"/>
                     </div>
                 </div>
                 <div class="col-4" style="">
@@ -526,7 +529,7 @@
 
                     <div class="col-12">
                         <span style="text-transform:uppercase"
-                              t-esc="retention.partner_id.prefix_vat+retention.partner_id.vat"/>
+                              t-esc="retention.beneficiary_partner_id.full_vat or ''"/>
                     </div>
                 </div>
             </div>
@@ -537,10 +540,10 @@
                         <span>Dirección:</span>
                     </div>
                     <div class="col-12" style="text-transform:uppercase">
-                        <span t-esc="retention.partner_id.street"/>
-                        <t t-if="retention.partner_id.street2">
+                        <span t-esc="retention.beneficiary_partner_id.street"/>
+                        <t t-if="retention.beneficiary_partner_id.street2">
                             ,
-                            <span t-esc="retention.partner_id.street2"/>
+                            <span t-esc="retention.beneficiary_partner_id.street2"/>
                         </t>
                     </div>
                 </div>

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': '[LocVe] Retenciones por Intermediación',
-    'version': '18.0.2.0.0',
+    'version': '18.0.2.0.1',
     'summary': 'Módulo de retenciones por intermediación para la suite LocVe (OPCIONAL).',
     'description': 'Módulo de retenciones por intermediación para la suite LocVe (OPCIONAL).\n\nGestiona los casos especiales de retención del SENIAT para empresas intermediarias:\n- Agencias de publicidad y propaganda\n- Empresas de seguros y reaseguros\n- Mandatarios y comisionistas\n- Agencias de viajes y turismo\nCálculo conforme a las alícuotas especiales establecidas en la providencia del SENIAT.\nSolo instalar en empresas que actúen como agentes o intermediarios.\nAutor: Ing. Nerdo Jose Pulido Aguirre',
     'author': 'Ing. Nerdo Jose Pulido Aguirre',

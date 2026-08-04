@@ -488,21 +488,26 @@ class AccountMoveLine(models.Model):
         # agregar variable al contexto para que no se cree el exchange
 
         def get_odoo_rate(vals):
-            if vals.get('record') and vals['record'].move_id.is_invoice(include_receipts=True):
-                exchange_rate_date = vals['record'].move_id.invoice_date
+            aml = vals.get('aml') or vals.get('record')
+            if aml and aml.move_id.is_invoice(include_receipts=True):
+                exchange_rate_date = aml.move_id.invoice_date
             else:
-                exchange_rate_date = vals['date']
-
-            if debit_vals['record'].move_id.is_invoice(include_receipts=True):
-                return (1 / credit_vals['record'].move_id.tax_today if credit_vals['record'].move_id.tax_today > 0 else 1)
-            else:
-                return 1 / debit_vals['record'].move_id.tax_today if debit_vals['record'].move_id.tax_today > 0 else 1
+                exchange_rate_date = aml.date if aml else vals.get('date', fields.Date.today())
+            company = aml.company_id if aml else vals.get('company')
+            to_re = recon_currency._get_conversion_rate(company_currency, recon_currency, company,
+                                                        exchange_rate_date)
+            tax_today = aml.move_id.tax_today if aml and hasattr(aml.move_id, 'tax_today') else 0.0
+            return 1 / tax_today if tax_today > 0 else 1
 
         def get_accounting_rate(vals):
-            if vals['company'].currency_id.is_zero(vals['balance']) or vals['currency'].is_zero(vals['amount_currency']):
+            aml = vals.get('aml') or vals.get('record')
+            currency = aml.currency_id if aml else vals.get('currency')
+            balance = aml.balance if aml else vals.get('balance', 0.0)
+            amount_currency = aml.amount_currency if aml else vals.get('amount_currency', 0.0)
+            if company_currency.is_zero(balance) or (currency and currency.is_zero(amount_currency)):
                 return None
             else:
-                return abs(vals['amount_currency']) / abs(vals['balance'])
+                return abs(amount_currency) / abs(balance)
 
         res = {
             'debit_vals': debit_vals,

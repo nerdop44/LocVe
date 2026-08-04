@@ -11,6 +11,11 @@
                     <field name="is_intermediation" invisible="1"/>
                     <field name="intermediation_warning" widget="html" nolabel="1" invisible="not is_intermediation"/>
                 </xpath>
+                <xpath expr="//field[@name='partner_id']" position="after">
+                    <field name="is_mediated_retention" invisible="not is_intermediation" readonly="state in ['emitted', 'cancel']"/>
+                    <field name="printed_partner_id" invisible="not is_mediated_retention" required="is_mediated_retention" readonly="state in ['emitted', 'cancel']"/>
+                    <field name="printed_partner_vat" invisible="not is_mediated_retention"/>
+                </xpath>
             </field>
         </record>
 
@@ -24,6 +29,11 @@
                     <field name="is_intermediation" invisible="1"/>
                     <field name="intermediation_warning" widget="html" nolabel="1" invisible="not is_intermediation"/>
                 </xpath>
+                <xpath expr="//field[@name='partner_id']" position="after">
+                    <field name="is_mediated_retention" invisible="not is_intermediation" readonly="state in ['emitted', 'cancel']"/>
+                    <field name="printed_partner_id" invisible="not is_mediated_retention" required="is_mediated_retention" readonly="state in ['emitted', 'cancel']"/>
+                    <field name="printed_partner_vat" invisible="not is_mediated_retention"/>
+                </xpath>
             </field>
         </record>
 
@@ -36,6 +46,11 @@
                 <xpath expr="//group[1]" position="before">
                     <field name="is_intermediation" invisible="1"/>
                     <field name="intermediation_warning" widget="html" nolabel="1" invisible="not is_intermediation"/>
+                </xpath>
+                <xpath expr="//field[@name='partner_id']" position="after">
+                    <field name="is_mediated_retention" invisible="not is_intermediation" readonly="state in ['emitted', 'cancel']"/>
+                    <field name="printed_partner_id" invisible="not is_mediated_retention" required="is_mediated_retention" readonly="state in ['emitted', 'cancel']"/>
+                    <field name="printed_partner_vat" invisible="not is_mediated_retention"/>
                 </xpath>
             </field>
         </record>

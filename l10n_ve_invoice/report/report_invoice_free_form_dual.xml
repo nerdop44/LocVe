@@ -34,6 +34,11 @@
         <template id="report_freeform_document_dual">
             <div class="mt-5">
                 <style>
+                    * {
+                        font-family: <t t-esc="o.company_id.invoice_font_family or 'sans-serif'"/> !important;
+                        font-size: <t t-esc="str(o.company_id.invoice_font_size or 12) + 'px'"/> !important;
+                        line-height: <t t-esc="str(o.company_id.invoice_line_height or 1.0)"/> !important;
+                    }
                     .invoice-number-date {
                         display: flex;
                         justify-content: space-between;

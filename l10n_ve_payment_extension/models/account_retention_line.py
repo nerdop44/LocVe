@@ -54,6 +54,17 @@ class AccountRetentionLine(models.Model):
     display_invoice_number = fields.Char(
         string="Invoice Number", compute="_compute_display_invoice_number", store=True
     )
+
+    @api.depends('move_id', 'move_id.name', 'move_id.ref', 'move_id.move_type')
+    def _compute_display_invoice_number(self):
+        for line in self:
+            if line.move_id:
+                if line.move_id.move_type in ['out_invoice', 'out_refund', 'out_debit']:
+                    line.display_invoice_number = line.move_id.name
+                else:
+                    line.display_invoice_number = line.move_id.ref or line.move_id.name or '--'
+            else:
+                line.display_invoice_number = '--'
 #    invoice_amount = fields.Float(
 #        string="Taxable income",
 #        digits="Tasa",

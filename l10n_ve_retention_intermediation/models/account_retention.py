@@ -12,6 +12,53 @@ class AccountRetention(models.Model):
         compute="_compute_is_intermediation"
     )
     
+    is_mediated_retention = fields.Boolean(
+        string="¿Retención con Sujeto Intermediado?",
+        default=False,
+        tracking=True,
+        help="Marque si el comprobante debe emitirse a nombre del sujeto intermediado final en lugar del agente/broker."
+    )
+
+    printed_partner_id = fields.Many2one(
+        'res.partner',
+        string="Sujeto Intermediado",
+        help="Socio beneficiario final del reembolso que se imprimirá en el comprobante."
+    )
+
+    printed_partner_vat = fields.Char(
+        related="printed_partner_id.full_vat",
+        string="RIF del Intermediado",
+        readonly=True
+    )
+
+    @api.onchange('is_mediated_retention', 'retention_line_ids')
+    def _onchange_is_mediated_retention(self):
+        for record in self:
+            if record.is_mediated_retention:
+                moves = record.retention_line_ids.mapped('move_id')
+                if moves:
+                    mediated_partners = moves.mapped('invoice_line_ids').filtered(
+                        lambda l: l.mediated_partner_id or l.product_id.mediated_partner_id
+                    ).mapped(lambda l: l.mediated_partner_id or l.product_id.mediated_partner_id)
+                    if mediated_partners:
+                        record.printed_partner_id = mediated_partners[0].id
+            else:
+                record.printed_partner_id = False
+
+    beneficiary_partner_id = fields.Many2one(
+        'res.partner',
+        string="Beneficiario Impreso",
+        compute="_compute_beneficiary_partner_id"
+    )
+
+    @api.depends('partner_id', 'is_mediated_retention', 'printed_partner_id')
+    def _compute_beneficiary_partner_id(self):
+        for record in self:
+            if record.is_mediated_retention and record.printed_partner_id:
+                record.beneficiary_partner_id = record.printed_partner_id.id
+            else:
+                record.beneficiary_partner_id = record.partner_id.id
+
     intermediation_warning = fields.Html(
         string="Aviso de Intermediación",
         compute="_compute_intermediation_warning"
