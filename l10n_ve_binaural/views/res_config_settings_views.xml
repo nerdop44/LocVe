@@ -50,6 +50,22 @@
                     <setting id="l10n_ve_group_sales_invoicing" string="Group sales invoicing" company_dependent="1" help="It allow enable the invoicing sequences by series in sale's journals.">
                         <field name="group_sales_invoicing_series"/>
                     </setting>
+                    <setting id="l10n_ve_invoice_font" string="Invoice Font Style" company_dependent="1" help="Configure the font family, font size, and line height for Free Form Invoice reports.">
+                        <div class="content-group">
+                            <div class="row mt16">
+                                <label for="invoice_font_family" class="col-lg-6 o_light_label" string="Font Family"/>
+                                <field name="invoice_font_family"/>
+                            </div>
+                            <div class="row">
+                                <label for="invoice_font_size" class="col-lg-6 o_light_label" string="Font Size (px)"/>
+                                <field name="invoice_font_size"/>
+                            </div>
+                            <div class="row">
+                                <label for="invoice_line_height" class="col-lg-6 o_light_label" string="Line Height"/>
+                                <field name="invoice_line_height"/>
+                            </div>
+                        </div>
+                    </setting>
                 </block>
             </xpath>
         </field>
