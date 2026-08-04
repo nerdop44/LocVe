@@ -42,8 +42,19 @@ class AccountRetentionLine(models.Model):
 
     # Para campos monetarios, Odoo 18 lo gestiona automáticamente
     # Simplemente elimina el parámetro 'digits'
-    invoice_amount = fields.Float(string="Taxable income", digits=(16, 2))
-    retention_amount = fields.Float()
+    invoice_amount = fields.Float(
+        string="Taxable income",
+        digits=(16, 2),
+        compute="_compute_amounts",
+        store=True,
+        readonly=False,
+    )
+    retention_amount = fields.Float(
+        string="Retention amount",
+        compute="_compute_retention_amount",
+        store=True,
+        readonly=False,
+    )
 #    aliquot = fields.Float(digits=(16, 2))
     amount_tax_ret = fields.Float(string="Retained tax", digits=(16, 2))
     base_ret = fields.Float("Retained base", digits=(16, 2))
@@ -65,19 +76,9 @@ class AccountRetentionLine(models.Model):
                     line.display_invoice_number = line.move_id.ref or line.move_id.name or '--'
             else:
                 line.display_invoice_number = '--'
-#    invoice_amount = fields.Float(
-#        string="Taxable income",
-#        digits="Tasa",
-#        compute="_compute_amounts",
-#        store=True,
-#        readonly=False,
-#    )
     invoice_total = fields.Float(string="Total invoiced", digits="Tasa", store=True)
     iva_amount = fields.Float(string="IVA", digits=(16, 2))
 
-#    retention_amount = fields.Float(
-#        digits="Tasa", compute="_compute_retention_amount", store=True, readonly=False
-#    )
     foreign_retention_amount = fields.Float(
         digits="Tasa", compute="_compute_retention_amount", store=True, readonly=False
     )
@@ -326,9 +327,8 @@ class AccountRetentionLine(models.Model):
                     record.related_percentage_fees = line.tariff_id.percentage if line.tariff_id else 0.0
                     record.related_amount_subtract_fees = line.tariff_id.amount_subtract if line.tariff_id else 0.0
 
-                    if not record.retention_id or record.retention_id.type == "in_invoice":
-                        record.invoice_amount = amount_untaxed_company
-                        record.foreign_invoice_amount = vef_untaxed
+                    record.invoice_amount = amount_untaxed_company
+                    record.foreign_invoice_amount = vef_untaxed
                     break  # Salir al encontrar la primera coincidencia
                 
     @api.depends("move_id", "retention_id.use_today_rate")
@@ -362,9 +362,8 @@ class AccountRetentionLine(models.Model):
             else:
                 foreign_amount_untaxed = getattr(record.move_id, 'amount_untaxed_bs', 0.0) or (amount_untaxed * used_rate)
 
-            if not record.retention_id or record.retention_id.type == "in_invoice":
-                record.invoice_amount = amount_untaxed
-                record.foreign_invoice_amount = foreign_amount_untaxed
+            record.invoice_amount = amount_untaxed
+            record.foreign_invoice_amount = foreign_amount_untaxed
 
     @api.onchange(
         "invoice_amount",
@@ -391,11 +390,11 @@ class AccountRetentionLine(models.Model):
         - foreign_retention_amount: SIEMPRE en VEF (Bs.)
           foreign_invoice_amount ya fue asignado en VEF por _compute_related_fields
         """
-        islr_supplier_retention_lines = self.filtered(
+        islr_retention_lines = self.filtered(
             lambda l: (not l.retention_id and l.payment_concept_id)
-            or (l.retention_id.type_retention == "islr" and l.retention_id.type == "in_invoice")
+            or (l.retention_id.type_retention == "islr")
         )
-        for record in islr_supplier_retention_lines:
+        for record in islr_retention_lines:
             used_rate = record.foreign_currency_rate or record.move_id.tax_today or 1.0
             subtract = record.related_amount_subtract_fees
 
@@ -403,7 +402,7 @@ class AccountRetentionLine(models.Model):
             # Si la empresa tiene activado islr_subtract_once_per_month,
             # verificamos si ya existe una retención emitida en el mismo mes
             # para el mismo partner con sustraendo aplicado.
-            if subtract > 0 and record.retention_id and record.retention_id.company_id.islr_subtract_once_per_month:
+            if subtract > 0 and record.retention_id and record.retention_id.type == "in_invoice" and record.retention_id.company_id.islr_subtract_once_per_month:
                 date_acc = record.retention_id.date_accounting
                 if date_acc:
                     first_of_month = date_acc.replace(day=1)
@@ -444,9 +443,8 @@ class AccountRetentionLine(models.Model):
         )
 
         for record in municipal_lines:
-            if not record.retention_id or record.retention_id.type == "in_invoice":
-                record.invoice_amount = record.move_id.amount_untaxed
-                record.foreign_invoice_amount = getattr(record.move_id, 'amount_untaxed_bs', 0.0) or (record.move_id.amount_untaxed * (record.move_id.foreign_rate or 1.0))
+            record.invoice_amount = record.move_id.amount_untaxed
+            record.foreign_invoice_amount = getattr(record.move_id, 'amount_untaxed_bs', 0.0) or (record.move_id.amount_untaxed * (record.move_id.foreign_rate or 1.0))
 
             record.iva_amount = record.move_id.amount_tax
             record.foreign_iva_amount = getattr(record.move_id, 'amount_tax_bs', 0.0) or (record.move_id.amount_tax * (record.move_id.foreign_rate or 1.0))
