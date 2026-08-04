@@ -30,20 +30,20 @@
                     <setting id="l10n_ve_purchase_taxes" string="Purchase Taxes" company_dependent="1" help="These taxes are used to identify them in the purchase ledgers.">
                         <div class="content-group">
                             <div class="row mt16">
-                                <label for="exempt_aliquot_sale" class="col-lg-6 o_light_label" string="Exempt"/>   
-                                <field name="exempt_aliquot_sale" />
+                                <label for="exempt_aliquot_purchase" class="col-lg-6 o_light_label" string="Exempt"/>   
+                                <field name="exempt_aliquot_purchase" />
                             </div>
                             <div class="row">
-                                <label for="general_aliquot_sale" class="col-lg-6 o_light_label" string="General aliquot" />
-                                <field name="general_aliquot_sale" />
+                                <label for="general_aliquot_purchase" class="col-lg-6 o_light_label" string="General aliquot" />
+                                <field name="general_aliquot_purchase" />
                             </div>
                             <div class="row">
-                                <label for="reduced_aliquot_sale" class="col-lg-6 o_light_label" string="Reduced aliquot"/>
-                                <field name="reduced_aliquot_sale" />
+                                <label for="reduced_aliquot_purchase" class="col-lg-6 o_light_label" string="Reduced aliquot"/>
+                                <field name="reduced_aliquot_purchase" />
                             </div>
                             <div class="row">
-                                <label for="extend_aliquot_sale" class="col-lg-6 o_light_label" string="Extended aliquot"/>
-                                <field name="extend_aliquot_sale" />
+                                <label for="extend_aliquot_purchase" class="col-lg-6 o_light_label" string="Extended aliquot"/>
+                                <field name="extend_aliquot_purchase" />
                             </div>
                         </div>
                     </setting>

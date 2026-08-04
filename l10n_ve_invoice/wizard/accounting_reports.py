@@ -55,8 +55,13 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
     def _fields_sale_book_line(self, move, taxes):
         if not move.invoice_date:
             raise UserError(_("Check the move %s does not have an invoice date and its id is %s", move.name, move.id))
-        multiplier = -1 if move.move_type == "out_refund" else 1
         doc_type = self._determinate_type(move.move_type)
+        # Resolución de factura afectada: NC usa reversed_entry_id, ND usa debit_origin_id
+        affected_name = "--"
+        if move.reversed_entry_id:
+            affected_name = move.reversed_entry_id.name
+        elif hasattr(move, 'debit_origin_id') and move.debit_origin_id:
+            affected_name = move.debit_origin_id.name
         return {
             "_id": move.id,
             "document_date": self._format_date(move.invoice_date),
@@ -69,23 +74,28 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
             "credit_number": move.name if doc_type == "NC" else "--",
             "move_type": doc_type,
             "transaction_type": self._determinate_transaction_type(move),
-            "number_invoice_affected": move.reversed_entry_id.name or "--",
+            "number_invoice_affected": affected_name,
             "correlative": move.correlative,
             "reduced_aliquot": 0.08,
             "general_aliquot": 0.16,
             "total_sales_iva": taxes.get("amount_untaxed", 0) + taxes.get("amount_taxed", 0),
-            "total_sales_not_iva": taxes.get("tax_base_exempt_aliquot", 0) * multiplier,
-            "amount_reduced_aliquot": taxes.get("amount_reduced_aliquot", 0) * multiplier,
-            "amount_general_aliquot": taxes.get("amount_general_aliquot", 0) * multiplier,
-            "tax_base_reduced_aliquot": taxes.get("tax_base_reduced_aliquot", 0) * multiplier,
-            "tax_base_general_aliquot": taxes.get("tax_base_general_aliquot", 0) * multiplier,
+            "total_sales_not_iva": taxes.get("tax_base_exempt_aliquot", 0),
+            "amount_reduced_aliquot": taxes.get("amount_reduced_aliquot", 0),
+            "amount_general_aliquot": taxes.get("amount_general_aliquot", 0),
+            "tax_base_reduced_aliquot": taxes.get("tax_base_reduced_aliquot", 0),
+            "tax_base_general_aliquot": taxes.get("tax_base_general_aliquot", 0),
             "igtf_percibido": taxes.get("igtf_perceived", 0.0),
         }
 
     def _fields_purchase_book_line(self, move, taxes):
         if not move.invoice_date:
             raise UserError(_("Check the move %s does not have an invoice date and its id is %s", move.name, move.id))
-        multiplier = -1 if move.move_type == "in_refund" else 1
+        # Resolución de factura afectada: NC usa reversed_entry_id, ND usa debit_origin_id
+        affected_name = "--"
+        if move.reversed_entry_id:
+            affected_name = move.reversed_entry_id.name
+        elif hasattr(move, 'debit_origin_id') and move.debit_origin_id:
+            affected_name = move.debit_origin_id.name
         fields_purchase_book_line = {
             "_id": move.id,
             "document_date": self._format_date(move.invoice_date),
@@ -95,19 +105,19 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
             "document_number": move.ref or move.name,
             "move_type": self._determinate_type(move.move_type),
             "transaction_type": self._determinate_transaction_type(move),
-            "number_invoice_affected": move.reversed_entry_id.name or "--",
+            "number_invoice_affected": affected_name,
             "correlative": move.correlative,
             "reduced_aliquot": 0.08,
             "extend_aliquot": 0.31,
             "general_aliquot": 0.16,
             "total_purchases_iva": taxes.get("amount_untaxed", 0) + taxes.get("amount_taxed", 0),
-            "total_purchases_not_iva": taxes.get("tax_base_exempt_aliquot", 0) * multiplier,
-            "amount_reduced_aliquot": taxes.get("amount_reduced_aliquot", 0) * multiplier,
-            "amount_general_aliquot": taxes.get("amount_general_aliquot", 0) * multiplier,
-            "amount_extend_aliquot": taxes.get("amount_extend_aliquot", 0) * multiplier,
-            "tax_base_reduced_aliquot": taxes.get("tax_base_reduced_aliquot", 0) * multiplier,
-            "tax_base_general_aliquot": taxes.get("tax_base_general_aliquot", 0) * multiplier,
-            "tax_base_extend_aliquot": taxes.get("tax_base_extend_aliquot", 0) * multiplier,
+            "total_purchases_not_iva": taxes.get("tax_base_exempt_aliquot", 0),
+            "amount_reduced_aliquot": taxes.get("amount_reduced_aliquot", 0),
+            "amount_general_aliquot": taxes.get("amount_general_aliquot", 0),
+            "amount_extend_aliquot": taxes.get("amount_extend_aliquot", 0),
+            "tax_base_reduced_aliquot": taxes.get("tax_base_reduced_aliquot", 0),
+            "tax_base_general_aliquot": taxes.get("tax_base_general_aliquot", 0),
+            "tax_base_extend_aliquot": taxes.get("tax_base_extend_aliquot", 0),
         }
         if self.company_id.config_deductible_tax and self.report == "purchase":
             fields_purchase_book_line.update(
@@ -115,12 +125,12 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
                     "reduced_aliquot_no_deductible": 0.08,
                     "extend_aliquot_no_deductible": 0.31,
                     "general_aliquot_no_deductible": 0.16,
-                    "amount_reduced_aliquot_no_deductible": taxes.get("amount_reduced_aliquot_no_deductible", 0) * multiplier,
-                    "amount_general_aliquot_no_deductible": taxes.get("amount_general_aliquot_no_deductible", 0) * multiplier,
-                    "amount_extend_aliquot_no_deductible": taxes.get("amount_extend_aliquot_no_deductible", 0) * multiplier,
-                    "tax_base_reduced_aliquot_no_deductible": taxes.get("tax_base_reduced_aliquot_no_deductible", 0) * multiplier,
-                    "tax_base_general_aliquot_no_deductible": taxes.get("tax_base_general_aliquot_no_deductible", 0) * multiplier,
-                    "tax_base_extend_aliquot_no_deductible": taxes.get("tax_base_extend_aliquot_no_deductible", 0) * multiplier,
+                    "amount_reduced_aliquot_no_deductible": taxes.get("amount_reduced_aliquot_no_deductible", 0),
+                    "amount_general_aliquot_no_deductible": taxes.get("amount_general_aliquot_no_deductible", 0),
+                    "amount_extend_aliquot_no_deductible": taxes.get("amount_extend_aliquot_no_deductible", 0),
+                    "tax_base_reduced_aliquot_no_deductible": taxes.get("tax_base_reduced_aliquot_no_deductible", 0),
+                    "tax_base_general_aliquot_no_deductible": taxes.get("tax_base_general_aliquot_no_deductible", 0),
+                    "tax_base_extend_aliquot_no_deductible": taxes.get("tax_base_extend_aliquot_no_deductible", 0),
                 }
             )
         return fields_purchase_book_line
@@ -779,16 +789,29 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
         multiplier = -1 if is_credit_note else 1
         
         # 2. Obtener configuraciones de grupos de impuestos (IDs)
-        exent_aliquot = self.company_id.exent_aliquot_sale.tax_group_id.id if self.report == "sale" and self.company_id.exent_aliquot_sale else False
-        reduced_aliquot = self.company_id.reduced_aliquot_sale.tax_group_id.id if self.report == "sale" and self.company_id.reduced_aliquot_sale else False
-        general_aliquot = self.company_id.general_aliquot_sale.tax_group_id.id if self.report == "sale" and self.company_id.general_aliquot_sale else False
-        extend_aliquot = self.company_id.extend_aliquot_sale.tax_group_id.id if self.report == "sale" and self.company_id.extend_aliquot_sale else False
-        
-        if self.report == "purchase":
-            exent_aliquot = self.company_id.exent_aliquot_purchase.tax_group_id.id if self.company_id.exent_aliquot_purchase else False
-            reduced_aliquot = self.company_id.reduced_aliquot_purchase.tax_group_id.id if self.company_id.reduced_aliquot_purchase else False
-            general_aliquot = self.company_id.general_aliquot_purchase.tax_group_id.id if self.company_id.general_aliquot_purchase else False
-            extend_aliquot = self.company_id.extend_aliquot_purchase.tax_group_id.id if self.company_id.extend_aliquot_purchase else False
+        # Fallback: exempt_aliquot (l10n_ve_binaural) OR exent_aliquot (l10n_ve_tax)
+        co = self.company_id
+        if self.report == "sale":
+            _exempt_tax = getattr(co, 'exempt_aliquot_sale', False) or getattr(co, 'exent_aliquot_sale', False)
+            exent_aliquot = _exempt_tax.tax_group_id.id if _exempt_tax else False
+            reduced_aliquot = co.reduced_aliquot_sale.tax_group_id.id if co.reduced_aliquot_sale else False
+            general_aliquot = co.general_aliquot_sale.tax_group_id.id if co.general_aliquot_sale else False
+            extend_aliquot = co.extend_aliquot_sale.tax_group_id.id if co.extend_aliquot_sale else False
+        else:
+            _exempt_tax = getattr(co, 'exempt_aliquot_purchase', False) or getattr(co, 'exent_aliquot_purchase', False)
+            exent_aliquot = _exempt_tax.tax_group_id.id if _exempt_tax else False
+            reduced_aliquot = co.reduced_aliquot_purchase.tax_group_id.id if co.reduced_aliquot_purchase else False
+            general_aliquot = co.general_aliquot_purchase.tax_group_id.id if co.general_aliquot_purchase else False
+            extend_aliquot = co.extend_aliquot_purchase.tax_group_id.id if co.extend_aliquot_purchase else False
+
+        # 2b. Obtener IDs de grupos de impuestos No Deducibles (solo compras)
+        no_ded_general = False
+        no_ded_reduced = False
+        no_ded_extend = False
+        if co.config_deductible_tax and self.report == "purchase":
+            no_ded_general = co.no_deductible_general_aliquot_purchase.tax_group_id.id if co.no_deductible_general_aliquot_purchase else False
+            no_ded_reduced = co.no_deductible_reduced_aliquot_purchase.tax_group_id.id if co.no_deductible_reduced_aliquot_purchase else False
+            no_ded_extend = co.no_deductible_extend_aliquot_purchase.tax_group_id.id if co.no_deductible_extend_aliquot_purchase else False
 
         # 3. EXTRACCIÓN DIRECTA DE LÍNEAS (VERDAD CONTABLE)
         total_untaxed_bs = 0.0
@@ -805,6 +828,12 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
                 signed_val = val * multiplier
                 if exent_aliquot in tax_group_ids or not line.tax_ids:
                     tax_result["tax_base_exempt_aliquot"] += signed_val
+                elif no_ded_reduced and no_ded_reduced in tax_group_ids:
+                    tax_result["tax_base_reduced_aliquot_no_deductible"] = tax_result.get("tax_base_reduced_aliquot_no_deductible", 0) + signed_val
+                elif no_ded_general and no_ded_general in tax_group_ids:
+                    tax_result["tax_base_general_aliquot_no_deductible"] = tax_result.get("tax_base_general_aliquot_no_deductible", 0) + signed_val
+                elif no_ded_extend and no_ded_extend in tax_group_ids:
+                    tax_result["tax_base_extend_aliquot_no_deductible"] = tax_result.get("tax_base_extend_aliquot_no_deductible", 0) + signed_val
                 elif reduced_aliquot in tax_group_ids:
                     tax_result["tax_base_reduced_aliquot"] += signed_val
                 elif general_aliquot in tax_group_ids:
@@ -824,6 +853,12 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
                     tax_result["igtf_perceived"] += signed_tax
                 elif group_id == exent_aliquot:
                     tax_result["amount_exempt_aliquot"] += signed_tax
+                elif no_ded_reduced and group_id == no_ded_reduced:
+                    tax_result["amount_reduced_aliquot_no_deductible"] = tax_result.get("amount_reduced_aliquot_no_deductible", 0) + signed_tax
+                elif no_ded_general and group_id == no_ded_general:
+                    tax_result["amount_general_aliquot_no_deductible"] = tax_result.get("amount_general_aliquot_no_deductible", 0) + signed_tax
+                elif no_ded_extend and group_id == no_ded_extend:
+                    tax_result["amount_extend_aliquot_no_deductible"] = tax_result.get("amount_extend_aliquot_no_deductible", 0) + signed_tax
                 elif group_id == reduced_aliquot:
                     tax_result["amount_reduced_aliquot"] += signed_tax
                 elif group_id == general_aliquot:
