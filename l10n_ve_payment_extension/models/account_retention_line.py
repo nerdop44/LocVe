@@ -281,24 +281,14 @@ class AccountRetentionLine(models.Model):
             invoice_is_in_vef = invoice_currency.name in ('VEF', 'VES')
 
             # Montos en moneda empresa (Bs. o USD)
-            amount_untaxed_company = invoice_currency._convert(
-                record.move_id.amount_untaxed,
-                record.env.company.currency_id,
-                record.move_id.company_id,
-                record.move_id.date or fields.Date.context_today(record)
-            )
-            amount_total_company = invoice_currency._convert(
-                record.move_id.amount_total,
-                record.env.company.currency_id,
-                record.move_id.company_id,
-                record.move_id.date or fields.Date.context_today(record)
-            )
-
-            # Montos en VEF (Regla v62: Tasa Dual)
             if invoice_is_in_vef:
+                amount_untaxed_company = record.move_id.amount_untaxed / used_rate if used_rate else record.move_id.amount_untaxed
+                amount_total_company = record.move_id.amount_total / used_rate if used_rate else record.move_id.amount_total
                 vef_untaxed = record.move_id.amount_untaxed
                 vef_total = record.move_id.amount_total
             else:
+                amount_untaxed_company = record.move_id.amount_untaxed
+                amount_total_company = record.move_id.amount_total
                 vef_untaxed = getattr(record.move_id, 'amount_untaxed_bs', 0.0) or (record.move_id.amount_untaxed * used_rate)
                 vef_total = getattr(record.move_id, 'amount_total_bs', 0.0) or (record.move_id.amount_total * used_rate)
 
@@ -314,14 +304,16 @@ class AccountRetentionLine(models.Model):
             if not record.payment_concept_id:
                 continue
 
-            if not record.move_id.partner_id.type_person_id:
-                raise UserError(_("The partner does not have a type of person"))
+            if not record.move_id.partner_id.type_person_id and not record.move_id.partner_id.commercial_partner_id.type_person_id:
+                _logger.warning(f"El partner {record.move_id.partner_id.name} no tiene tipo de persona asignado")
+                continue
 
-            partner_person_type_id = record.move_id.partner_id.type_person_id.id
+            partner_person_type = record.move_id.partner_id.type_person_id or record.move_id.partner_id.commercial_partner_id.type_person_id
+            partner_person_type_id = partner_person_type.id if partner_person_type else False
 
             payment_concept = record.payment_concept_id.line_payment_concept_ids
             for line in payment_concept:
-                if partner_person_type_id == line.type_person_id.id:
+                if partner_person_type_id and partner_person_type_id == line.type_person_id.id:
                     record.related_pay_from = line.pay_from or 0.0
                     record.related_percentage_tax_base = line.percentage_tax_base or 0.0
                     record.related_percentage_fees = line.tariff_id.percentage if line.tariff_id else 0.0
@@ -359,6 +351,7 @@ class AccountRetentionLine(models.Model):
             # Monto en moneda fiscal (Bs.)
             if invoice_is_in_vef:
                 foreign_amount_untaxed = amount_untaxed
+                amount_untaxed = amount_untaxed / used_rate if used_rate else amount_untaxed
             else:
                 foreign_amount_untaxed = getattr(record.move_id, 'amount_untaxed_bs', 0.0) or (amount_untaxed * used_rate)
 
