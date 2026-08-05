@@ -13,6 +13,13 @@ class AccountPaymentRegister(models.TransientModel):
     amount = fields.Monetary(currency_field='currency_id', store=True, readonly=False)
     tax_today = fields.Float(string="Tasa Actual")
     tax_invoice = fields.Float(string="Tasa Factura")
+    usar_tasa_factura = fields.Boolean(string="Usar Tasa Factura", default=True)
+
+    @api.onchange('usar_tasa_factura')
+    def _onchange_usar_tasa_factura(self):
+        if getattr(self, 'usar_tasa_factura', False) and getattr(self, 'tax_invoice', False):
+            self.tax_today = self.tax_invoice
+
     currency_id_dif = fields.Many2one("res.currency",string="Divisa de Referencia")
     currency_id_name = fields.Char(string="Nombre de Divisa", related="currency_id.name")
     amount_residual_usd = fields.Monetary(currency_field='currency_id_dif',string='Adeudado Divisa Ref.', readonly=True)
@@ -214,7 +221,7 @@ class AccountPaymentRegister(models.TransientModel):
 
     def _create_payment_vals_from_wizard(self, batch_result):
         payment_vals = super()._create_payment_vals_from_wizard(batch_result)
-        tasa_a_usar = self.tax_invoice if self.usar_tasa_factura else self.tax_today
+        tasa_a_usar = self.tax_invoice if getattr(self, 'usar_tasa_factura', False) else self.tax_today
         payment_vals.update({
             'tax_today': tasa_a_usar,
             'currency_id_dif': self.currency_id_dif.id,
@@ -227,7 +234,7 @@ class AccountPaymentRegister(models.TransientModel):
 
     def _create_payment_vals_from_batch(self, batch_result):
         payment_vals = super()._create_payment_vals_from_batch(batch_result)
-        tasa_a_usar = self.tax_invoice if self.usar_tasa_factura else self.tax_today
+        tasa_a_usar = self.tax_invoice if getattr(self, 'usar_tasa_factura', False) else self.tax_today
         payment_vals.update({
             'tax_today': tasa_a_usar,
             'currency_id_dif': self.currency_id_dif.id,
@@ -240,7 +247,7 @@ class AccountPaymentRegister(models.TransientModel):
 
     def _prepare_payment_vals(self, batch_result):
         payment_vals = super()._prepare_payment_vals(batch_result)
-        tasa_a_usar = self.tax_invoice if self.usar_tasa_factura else self.tax_today
+        tasa_a_usar = self.tax_invoice if getattr(self, 'usar_tasa_factura', False) else self.tax_today
         payment_vals.update({
             'tax_today': tasa_a_usar,
             'currency_id_dif': self.currency_id_dif.id,
