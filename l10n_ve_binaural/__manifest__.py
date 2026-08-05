@@ -10,7 +10,7 @@
     'depends': ['account', 'l10n_ve_location', 'l10n_ve_invoice'],
     'demo': ['demo/demo_company.xml'],
     'data': ['security/ir_rule.xml', 'data/ir_sequence.xml', 'views/account_journal_views.xml', 'views/account_move_views.xml', 'views/res_config_settings_views.xml', 'views/res_partner_views.xml', 'views/l10n_ve_menuitems.xml'],
-    'version': '18.0.2.0.4',
+    'version': '18.0.2.0.5',
 
     'license': 'LGPL-3',
     'summary': 'Módulo core de facturación extendida para la suite LocVe Venezuela.',
