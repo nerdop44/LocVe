@@ -6,7 +6,7 @@
     'author': 'Ing. Nerdo Jose Pulido Aguirre',
     'website': 'https://github.com/nerdop44',
     'category': 'Accountant/Accountant',
-    'version': '18.0.2.0.21',
+    'version': '18.0.2.0.22',
 
 
     'depends': ['base', 'account', 'l10n_ve_rate', 'l10n_ve_accountant', 'l10n_ve_invoice', 'l10n_ve_location', 'l10n_ve_contact', 'l10n_ve_tax_payer', 'l10n_ve_base', 'product'],

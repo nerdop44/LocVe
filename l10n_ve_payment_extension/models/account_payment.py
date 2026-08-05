@@ -72,6 +72,44 @@ class AccountPayment(models.Model):
     retention_id = fields.Many2one("account.retention", ondelete="cascade")
 
 
+    @api.model
+    def _get_next_canceled_name(self, model_name, original_name, company_id):
+        """
+        Calcula de forma incremental el nombre para un registro cancelado.
+        Ejemplo:
+        - 1ª vez: original_name + "-canc"
+        - 2ª vez: original_name + "-canc-01"
+        - 3ª vez: original_name + "-canc-02"
+        """
+        if not original_name or original_name == "/":
+            return original_name
+
+        import re
+        base_name = original_name.split("-canc")[0] if "-canc" in original_name else original_name
+
+        domain = [
+            ("company_id", "=", company_id),
+            ("name", "like", base_name + "-canc%"),
+        ]
+        records = self.env[model_name].sudo().search(domain)
+        existing_names = set(records.mapped("name"))
+
+        candidate_1 = f"{base_name}-canc"
+        if candidate_1 not in existing_names:
+            return candidate_1
+
+        max_num = 0
+        pattern = re.compile(rf"^{re.escape(base_name)}-canc-(\d+)$")
+        for name in existing_names:
+            match = pattern.match(name)
+            if match:
+                num = int(match.group(1))
+                if num > max_num:
+                    max_num = num
+
+        next_num = max_num + 1
+        return f"{base_name}-canc-{next_num:02d}"
+
     @api.depends("date")
     def _compute_rate(self):
         for payment in self:
@@ -110,19 +148,45 @@ class AccountPayment(models.Model):
 
             retention_type = payment.retention_id.type_retention
             prefix = account_move_name_by_retention_type.get(retention_type, "RET")
-            move_name = (
+            target_name = (
                 prefix
                 + f"-{payment.retention_id.number}"
                 + f"-{payment.retention_line_ids[0].move_id.name}"
             )
             if retention_type == "islr" and payment.retention_line_ids[0].payment_concept_id:
-                move_name += f"-{payment.retention_line_ids[0].payment_concept_id.name[:5]}"
+                target_name += f"-{payment.retention_line_ids[0].payment_concept_id.name[:5]}"
 
-            vals_to_change = {"name": move_name}
+            # Liberar asientos cancelados existentes que usen este nombre preciso
+            conflicts = self.env['account.move'].sudo().search([
+                ('company_id', '=', move.company_id.id),
+                ('name', '=', target_name),
+                ('id', '!=', move.id),
+            ])
+            if conflicts:
+                for conf in conflicts.filtered(lambda m: m.state == 'cancel'):
+                    new_conf_name = self._get_next_canceled_name("account.move", conf.name, conf.company_id.id)
+                    conf.write({"name": new_conf_name})
+                    conf.line_ids.write({"name": new_conf_name})
+                    if conf.payment_id:
+                        conf.payment_id.write({"name": new_conf_name})
+
+            vals_to_change = {"name": target_name}
             move.write(vals_to_change)
             move.line_ids.write(vals_to_change)
+            payment.write({"name": target_name})
 
         return res
+
+    def action_cancel(self):
+        for payment in self:
+            if payment.name and payment.name != "/" and not payment.name.endswith("-canc") and "-canc-" not in payment.name:
+                canc_pname = self._get_next_canceled_name("account.payment", payment.name, payment.company_id.id)
+                payment.write({"name": canc_pname})
+            if payment.move_id and payment.move_id.name and payment.move_id.name != "/" and not payment.move_id.name.endswith("-canc") and "-canc-" not in payment.move_id.name:
+                canc_mname = self._get_next_canceled_name("account.move", payment.move_id.name, payment.company_id.id)
+                payment.move_id.write({"name": canc_mname})
+                payment.move_id.line_ids.write({"name": canc_mname})
+        return super().action_cancel()
 
     # def _synchronize_to_moves(self, changed_fields):
     #     """

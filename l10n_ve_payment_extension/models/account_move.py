@@ -385,6 +385,16 @@ class AccountMoveRetention(models.Model):
 
         return retention_payment_move_ids.ids
 
+    def button_cancel(self):
+        for move in self:
+            if move.name and move.name != "/" and not move.name.endswith("-canc") and "-canc-" not in move.name:
+                canceled_name = self.env["account.payment"]._get_next_canceled_name(
+                    "account.move", move.name, move.company_id.id
+                )
+                move.write({"name": canceled_name})
+                move.line_ids.write({"name": canceled_name})
+        return super().button_cancel()
+
     @api.constrains('name', 'journal_id', 'state')
     def _constrains_date_sequence(self):
         # Evitar validación de secuencia si es un asiento de retención (ej. generado por el pago de retención)

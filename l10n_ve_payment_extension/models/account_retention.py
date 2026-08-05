@@ -664,6 +664,7 @@ class AccountRetention(models.Model):
             if move.move_type in ("in_refund", "out_refund"):
                 payment_type = "inbound" if partner_type == "supplier" else "outbound"
 
+            lines._compute_line_amounts()
             _, _, currency_vef, _ = self._get_retention_currencies()
             total_retention_vef = sum(lines.mapped("foreign_retention_amount"))
             foreign_rate = lines[0].foreign_currency_rate if lines else 1.0
@@ -773,6 +774,7 @@ class AccountRetention(models.Model):
                 payment_type = "inbound" if partner_type == "supplier" else "outbound"
 
             # Moneda del pago: VEF (Regla universal venezolana)
+            lines._compute_line_amounts()
             _, _, currency_vef, _ = self._get_retention_currencies()
             # Monto en VEF
             total_retention_vef = sum(lines.mapped("foreign_retention_amount"))
@@ -1159,6 +1161,7 @@ class AccountRetention(models.Model):
 
         # 2. Iterar sobre los pagos requeridos para crear o actualizar
         for (concept, move), lines in lines_by_concept_and_move.items():
+            lines._compute_line_amounts()
             # Moneda VEF
             _, _, currency_vef, _ = self._get_retention_currencies()
             total_retention_vef = sum(lines.mapped('foreign_retention_amount'))
@@ -1540,6 +1543,12 @@ class AccountRetention(models.Model):
                 line.move_id.islr_voucher_number = False
 
     def action_cancel(self):
+        for retention in self:
+            if retention.number and not retention.number.endswith("-canc") and "-canc-" not in retention.number:
+                canc_num = self.env['account.payment']._get_next_canceled_name(
+                    "account.retention", retention.number, retention.company_id.id
+                )
+                retention.write({"number": canc_num})
         self.payment_ids.mapped("move_id.line_ids").remove_move_reconcile()
         self.payment_ids.action_cancel()
         self.write({"state": "cancel"})
