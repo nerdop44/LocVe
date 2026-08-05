@@ -507,7 +507,10 @@ class AccountMove(models.Model):
                     elif line.display_type == 'payment_term':
                         # Residual amount.
                         total_residual += line.amount_residual_usd
-            move.amount_residual_usd = total_residual
+            if move.payment_state == 'paid' or move.amount_residual == 0:
+                move.amount_residual_usd = 0.0
+            else:
+                move.amount_residual_usd = total_residual
             move.amount_total_signed_usd = abs(total) if move.move_type == 'entry' else -total
 
     @api.depends(

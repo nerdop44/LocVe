@@ -186,12 +186,15 @@ class AccountMoveLine(models.Model):
         """
         for line in self:
             if line.id and (line.account_id.reconcile or line.account_id.account_type in ('asset_cash', 'liability_credit_card')):
-                reconciled_balance = sum(line.matched_credit_ids.mapped('amount_usd')) \
-                                     - sum(line.matched_debit_ids.mapped('amount_usd'))
+                if line.reconciled or line.amount_residual == 0:
+                    line.amount_residual_usd = 0.0
+                else:
+                    reconciled_balance = sum(line.matched_credit_ids.mapped('amount_usd')) \
+                                         - sum(line.matched_debit_ids.mapped('amount_usd'))
 
-                line.amount_residual_usd = (line.debit_usd - line.credit_usd) - reconciled_balance
+                    line.amount_residual_usd = (line.debit_usd - line.credit_usd) - reconciled_balance
 
-                line.reconciled = (line.amount_residual_usd == 0)
+                line.reconciled = (line.amount_residual_usd == 0 or line.amount_residual == 0)
             else:
                 # Must not have any reconciliation since the line is not eligible for that.
                 line.amount_residual_usd = 0.0
