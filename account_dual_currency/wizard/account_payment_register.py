@@ -64,33 +64,24 @@ class AccountPaymentRegister(models.TransientModel):
 
 
     @api.onchange('tax_today', 'source_amount', 'source_amount_currency', 'source_currency_id', 'company_id', 'currency_id',
-                 'payment_date')
+                 'payment_date', 'usar_tasa_factura')
     def _compute_amount(self):
         for wizard in self:
+            tasa_a_usar = wizard.tax_invoice if getattr(wizard, 'usar_tasa_factura', False) else wizard.tax_today
+            if not tasa_a_usar or tasa_a_usar <= 0:
+                tasa_a_usar = 1.0
+
             if wizard.source_currency_id == wizard.currency_id:
                 # Same currency.
-                #wizard.amount = wizard.source_amount_currency
-                if wizard.tax_today == wizard.tax_invoice:
-                    wizard.amount = wizard.source_amount
-                else:
-                    if wizard.source_currency_id == wizard.company_id.currency_id_dif:
-                        wizard.amount = wizard.amount_residual_usd
-                    else:
-                        wizard.amount = wizard.amount_residual_usd * wizard.tax_today
+                wizard.amount = wizard.source_amount
             elif wizard.currency_id == wizard.company_id.currency_id:
-                # Payment expressed on the company's currency.
-                if wizard.source_currency_id == wizard.company_id.currency_id:
-                    if wizard.tax_today == wizard.tax_invoice:
-                        wizard.amount = wizard.source_amount
-                    else:
-                        wizard.amount = wizard.amount_residual_usd * wizard.tax_today
-                else:
-                    wizard.amount = wizard.source_amount_currency * wizard.tax_today
+                # Payment expressed on company's currency
+                wizard.amount = wizard.source_amount / tasa_a_usar
+            elif wizard.currency_id == wizard.company_id.currency_id_dif:
+                # Payment expressed on reference currency
+                wizard.amount = wizard.source_amount * tasa_a_usar
             else:
-                # Foreign currency on payment different than the one set on the journal entries.
-                #amount_payment_currency = wizard.company_id.currency_id._convert(wizard.source_amount,
-                #                                                                 wizard.currency_id, wizard.company_id,
-                #                                                                 wizard.payment_date)
+                # Fallback
                 wizard.amount = wizard.amount_residual_usd
 
             if wizard.aplicar_igtf_divisa:

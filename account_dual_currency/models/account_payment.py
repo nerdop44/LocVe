@@ -193,21 +193,39 @@ class AccountPayment(models.Model):
         total_debit = 0
         total_credit = 0
         if res:
-            currency_id = res[0]['currency_id']
+            currency_id = res[0].get('currency_id')
         currencies_are_different = self.currency_id_company.id != currency_id
+
+        # Odoo 18 compatibility: ensure 'debit' and 'credit' keys exist in all line dicts
+        for line in (res or []) + (write_off_line_vals or []):
+            if 'debit' not in line:
+                line['debit'] = line['balance'] if line.get('balance', 0) > 0 else 0
+            if 'credit' not in line:
+                line['credit'] = abs(line['balance']) if line.get('balance', 0) < 0 else 0
+
+        is_company_usd = self.currency_id_company.name == 'USD'
         for line in res:
             if line['account_id'] == self.outstanding_account_id.id:
                 line['tax_today'] = self.tax_today
                 if currencies_are_different:
-                    line['debit'] = float_round(line.get('amount_currency', 0.0) * self.tax_today, precision_digits=2) if line.get('debit') else 0.0
-                    line['credit'] = float_round(abs(line.get('amount_currency', 0.0)) * self.tax_today, precision_digits=2) if line.get('credit') else 0.0
+                    if is_company_usd:
+                        line['debit'] = float_round(line['amount_currency'] / self.tax_today, precision_digits=2) if line['debit'] and self.tax_today else 0.0
+                        line['credit'] = float_round(abs(line['amount_currency']) / self.tax_today, precision_digits=2) if line['credit'] and self.tax_today else 0.0
+                    else:
+                        line['debit'] = float_round(line['amount_currency'] * self.tax_today, precision_digits=2) if line['debit'] else 0.0
+                        line['credit'] = float_round(abs(line['amount_currency']) * self.tax_today, precision_digits=2) if line['credit'] else 0.0
                     line['balance'] = float_round(line['debit'] - line['credit'], precision_digits=2)
             elif line['account_id'] == self.destination_account_id.id:
                 tasa_factura = self.env.context.get('tasa_factura', self.tax_today)
                 line['tax_today'] = tasa_factura if write_off_line_vals else self.tax_today
                 if currencies_are_different:
-                    line['debit'] = float_round(line.get('amount_currency', 0.0) * line['tax_today'], precision_digits=2) if line.get('debit') else 0.0
-                    line['credit'] = float_round(abs(line.get('amount_currency', 0.0)) * line['tax_today'], precision_digits=2) if line.get('credit') else 0.0
+                    rate_to_use = line['tax_today'] if line['tax_today'] else 1.0
+                    if is_company_usd:
+                        line['debit'] = float_round(line['amount_currency'] / rate_to_use, precision_digits=2) if line['debit'] and rate_to_use else 0.0
+                        line['credit'] = float_round(abs(line['amount_currency']) / rate_to_use, precision_digits=2) if line['credit'] and rate_to_use else 0.0
+                    else:
+                        line['debit'] = float_round(line['amount_currency'] * rate_to_use, precision_digits=2) if line['debit'] else 0.0
+                        line['credit'] = float_round(abs(line['amount_currency']) * rate_to_use, precision_digits=2) if line['credit'] else 0.0
                     line['balance'] = float_round(line['debit'] - line['credit'], precision_digits=2)
             else:
                 continue
