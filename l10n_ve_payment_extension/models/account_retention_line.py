@@ -323,12 +323,22 @@ class AccountRetentionLine(models.Model):
                     record.foreign_invoice_amount = vef_untaxed
                     break  # Salir al encontrar la primera coincidencia
                 
-    @api.depends("move_id", "retention_id.use_today_rate")
-    def _compute_amounts(self):
+    def _compute_line_amounts(self):
         for record in self:
             if not record.move_id:
+                record.invoice_amount = 0.0
+                record.invoice_total = 0.0
+                record.iva_amount = 0.0
+                record.retention_amount = 0.0
+                record.foreign_invoice_amount = 0.0
+                record.foreign_invoice_total = 0.0
+                record.foreign_iva_amount = 0.0
+                record.foreign_retention_amount = 0.0
+                record.foreign_currency_rate = 1.0
                 continue
-            # Identificar las monedas dinámicamente
+
+            invoice = record.move_id
+
             if record.retention_id:
                 base_currency, alternate_currency, vef_currency, foreign_currency = record.retention_id._get_retention_currencies()
             else:
@@ -336,27 +346,92 @@ class AccountRetentionLine(models.Model):
                 alternate_currency = getattr(record.env.company, 'currency_id_dif', record.env['res.currency'])
                 vef_currency = alternate_currency if alternate_currency.name in ('VEF', 'VES') else base_currency
 
-            tax_totals = record.move_id.tax_totals or {}
-            invoice_currency = record.move_id.currency_id
-            invoice_is_in_vef = invoice_currency.name in ('VEF', 'VES')
+            invoice_currency = invoice.currency_id
+            invoice_is_vef = vef_currency and (invoice_currency == vef_currency)
 
-            # Tasa
-            invoice_rate = record.move_id.tax_today or 1.0
+            invoice_rate = record.foreign_currency_rate or invoice.tax_today or 1.0
             today_rate = getattr(record.env.company, 'currency_id_dif', record.env['res.currency']).inverse_rate or 1.0
             used_rate = today_rate if (record.retention_id and record.retention_id.use_today_rate) else invoice_rate
+            used_rate = used_rate or 1.0
 
-            # Monto en moneda de la empresa
-            amount_untaxed = record.move_id.amount_untaxed
-
-            # Monto en moneda fiscal (Bs.)
-            if invoice_is_in_vef:
-                foreign_amount_untaxed = amount_untaxed
-                amount_untaxed = amount_untaxed / used_rate if used_rate else amount_untaxed
+            if invoice_is_vef:
+                bs_untaxed = abs(invoice.amount_untaxed)
+                bs_total = abs(invoice.amount_total)
+                bs_iva = abs(invoice.amount_tax)
+                usd_untaxed = bs_untaxed / used_rate
+                usd_total = bs_total / used_rate
+                usd_iva = bs_iva / used_rate
             else:
-                foreign_amount_untaxed = getattr(record.move_id, 'amount_untaxed_bs', 0.0) or (amount_untaxed * used_rate)
+                usd_untaxed = abs(invoice.amount_untaxed)
+                usd_total = abs(invoice.amount_total)
+                usd_iva = abs(invoice.amount_tax)
+                bs_untaxed = getattr(invoice, 'amount_untaxed_bs', 0.0) or (usd_untaxed * used_rate)
+                bs_total = getattr(invoice, 'amount_total_bs', 0.0) or (usd_total * used_rate)
+                bs_iva = bs_total - bs_untaxed
 
-            record.invoice_amount = amount_untaxed
-            record.foreign_invoice_amount = foreign_amount_untaxed
+            type_retention = record.retention_id.type_retention if record.retention_id else False
+            if not type_retention:
+                if record.payment_concept_id:
+                    type_retention = 'islr'
+                elif record.economic_activity_id:
+                    type_retention = 'municipal'
+                else:
+                    type_retention = 'iva'
+
+            withholding_amount = record.related_percentage_tax_base or (invoice.partner_id.withholding_type_id.value if invoice.partner_id.withholding_type_id else 0.0)
+            if not withholding_amount and record.retention_id and record.retention_id.type == 'in_invoice':
+                withholding_amount = 75.0
+
+            computed_invoice_amount = usd_untaxed
+            computed_foreign_invoice_amount = bs_untaxed
+            computed_invoice_total = usd_total
+            computed_iva_amount = usd_iva
+            computed_foreign_invoice_total = bs_total
+            computed_foreign_iva_amount = bs_iva
+            computed_foreign_currency_rate = used_rate
+
+            computed_retention_amount = 0.0
+            computed_foreign_retention_amount = 0.0
+
+            if type_retention == 'iva':
+                computed_retention_amount = computed_iva_amount * (withholding_amount / 100.0)
+                computed_foreign_retention_amount = computed_foreign_iva_amount * (withholding_amount / 100.0)
+            elif type_retention == 'islr':
+                tax_base_pct = record.related_percentage_tax_base or 100.0
+                fee_pct = record.related_percentage_fees or 0.0
+                subtract = record.related_amount_subtract_fees or 0.0
+
+                computed_retention_amount = (
+                    (computed_invoice_amount * (tax_base_pct / 100))
+                    * (fee_pct / 100)
+                ) - (subtract / used_rate if used_rate else 0.0)
+                computed_retention_amount = max(computed_retention_amount, 0.0)
+
+                computed_foreign_retention_amount = (
+                    (computed_foreign_invoice_amount * (tax_base_pct / 100))
+                    * (fee_pct / 100)
+                ) - subtract
+                computed_foreign_retention_amount = max(computed_foreign_retention_amount, 0.0)
+            elif type_retention == 'municipal':
+                aliquot = record.economic_activity_id.aliquot or record.aliquot or 0.0
+                computed_retention_amount = computed_invoice_amount * aliquot / 100.0
+                computed_foreign_retention_amount = computed_foreign_invoice_amount * aliquot / 100.0
+
+            record.invoice_amount = computed_invoice_amount
+            record.invoice_total = computed_invoice_total
+            record.iva_amount = computed_iva_amount
+            record.foreign_invoice_amount = computed_foreign_invoice_amount
+            record.foreign_invoice_total = computed_foreign_invoice_total
+            record.foreign_iva_amount = computed_foreign_iva_amount
+            record.foreign_currency_rate = computed_foreign_currency_rate
+            if computed_retention_amount > 0 or not record.retention_amount:
+                record.retention_amount = computed_retention_amount
+            if computed_foreign_retention_amount > 0 or not record.foreign_retention_amount:
+                record.foreign_retention_amount = computed_foreign_retention_amount
+
+    @api.depends("move_id", "retention_id.use_today_rate")
+    def _compute_amounts(self):
+        self._compute_line_amounts()
 
     @api.onchange(
         "invoice_amount",

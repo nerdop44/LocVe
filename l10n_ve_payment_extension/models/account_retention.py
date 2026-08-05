@@ -1681,12 +1681,19 @@ class AccountRetention(models.Model):
         if not payment.move_id:
             _logger.warning(f"Pago {payment.id} no tiene asiento contable, omitiendo reconciliación")
             return
+
+        if payment.move_id.state == 'draft':
+            payment.move_id.action_post()
             
         if payment.move_id.state != 'posted':
             _logger.warning(f"Asiento del pago {payment.id} no está publicado, omitiendo reconciliación")
             return
+
+        payment.retention_line_ids._compute_line_amounts()
+        if payment.retention_id:
+            payment.retention_id.retention_line_ids._compute_line_amounts()
             
-        facturas = payment.retention_line_ids.mapped('move_id').filtered(
+        facturas = (payment.retention_line_ids.mapped('move_id') | (payment.retention_id and payment.retention_id.retention_line_ids.mapped('move_id'))).filtered(
             lambda m: m.state == 'posted'
         )
         if not facturas:
@@ -1746,12 +1753,19 @@ class AccountRetention(models.Model):
         if not payment.move_id:
             _logger.warning(f"Pago {payment.id} no tiene asiento contable, omitiendo reconciliación")
             return
+
+        if payment.move_id.state == 'draft':
+            payment.move_id.action_post()
             
         if payment.move_id.state != 'posted':
             _logger.warning(f"Asiento del pago {payment.id} no está publicado, omitiendo reconciliación")
             return
+
+        payment.retention_line_ids._compute_line_amounts()
+        if payment.retention_id:
+            payment.retention_id.retention_line_ids._compute_line_amounts()
             
-        facturas = payment.retention_line_ids.mapped('move_id').filtered(
+        facturas = (payment.retention_line_ids.mapped('move_id') | (payment.retention_id and payment.retention_id.retention_line_ids.mapped('move_id'))).filtered(
             lambda m: m.state == 'posted'
         )
         if not facturas:
