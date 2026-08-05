@@ -94,6 +94,8 @@ class AccountMove(models.Model):
     amount_total_bs = fields.Monetary(currency_field='company_currency_id', string='Total Bs.', store=True,
                                       readonly=True,
                                       compute='_amount_all_usd', copy=False)
+    amount_residual_bs = fields.Monetary(currency_field='company_currency_id', string='Saldo Pendiente Bs.',
+                                         compute='_compute_amount', store=True, readonly=True, copy=False)
 
     amount_total_signed_usd = fields.Monetary(
         string='Total Signed Ref.',
@@ -509,8 +511,13 @@ class AccountMove(models.Model):
                         total_residual += line.amount_residual_usd
             if move.payment_state == 'paid' or move.amount_residual == 0:
                 move.amount_residual_usd = 0.0
+                move.amount_residual_bs = 0.0
             else:
                 move.amount_residual_usd = total_residual
+                if move.currency_id == move.company_currency_id:
+                    move.amount_residual_bs = move.amount_residual
+                else:
+                    move.amount_residual_bs = (move.amount_residual * move.tax_today) if move.tax_today > 0 else abs(move.amount_residual_signed)
             move.amount_total_signed_usd = abs(total) if move.move_type == 'entry' else -total
 
     @api.depends(

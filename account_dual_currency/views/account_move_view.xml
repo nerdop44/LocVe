@@ -68,7 +68,7 @@
                             <tr class="border-top fw-bold text-primary" invisible="state == 'draft'">
                                 <td class="text-start pe-3">Saldo / Pendiente:</td>
                                 <td class="pe-3"><field name="amount_residual_usd" widget='monetary' options="{'currency_field': 'currency_usd_id'}" class="d-inline"/></td>
-                                <td><field name="amount_residual" widget='monetary' options="{'currency_field': 'currency_id'}" class="d-inline"/></td>
+                                <td><field name="amount_residual_bs" widget='monetary' options="{'currency_field': 'currency_vef_id'}" class="d-inline"/></td>
                             </tr>
                         </tbody>
                     </table>
