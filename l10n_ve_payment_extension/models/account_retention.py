@@ -1700,12 +1700,13 @@ class AccountRetention(models.Model):
             _logger.warning("No hay facturas publicadas vinculadas a este pago")
             return
 
-        # Auto-reparación de monto y tasa en pagos creados con amount = 0
+        # Auto-reparación de monto, tasa y líneas desincronizadas en pagos creados previamente
         total_retention_vef = sum((payment.retention_line_ids or payment.retention_id.retention_line_ids).mapped("foreign_retention_amount"))
-        if total_retention_vef > 0 and (payment.currency_id.is_zero(payment.amount) or abs(payment.amount - total_retention_vef) > 0.01):
-            _logger.info(f"Reparando monto en pago {payment.id}: de {payment.amount} a {total_retention_vef}")
-            if payment.move_id and payment.move_id.state == 'posted':
-                payment.move_id.button_draft()
+        has_zero_lines = any(l.debit == 0.0 and l.credit == 0.0 for l in payment.move_id.line_ids)
+        if total_retention_vef > 0 and (payment.currency_id.is_zero(payment.amount) or abs(payment.amount - total_retention_vef) > 0.01 or has_zero_lines):
+            _logger.info(f"Reparando monto y líneas en pago {payment.id}: de {payment.amount} a {total_retention_vef}")
+            if payment.move_id and payment.move_id.line_ids.filtered(lambda l: l.reconciled):
+                payment.move_id.line_ids.remove_move_reconcile()
             if payment.state != 'draft':
                 payment.action_draft()
             rate = payment.foreign_rate or (payment.retention_line_ids and payment.retention_line_ids[0].foreign_currency_rate) or (facturas and facturas[0].tax_today) or 1.0
@@ -1714,12 +1715,10 @@ class AccountRetention(models.Model):
                 "tax_today": rate,
                 "foreign_rate": rate,
             })
+            payment._synchronize_to_moves({'amount', 'currency_id', 'payment_type', 'partner_id', 'date'})
             if hasattr(payment, '_currency_equal'):
                 payment._currency_equal()
-            if payment.move_id and payment.move_id.state == 'draft':
-                payment.move_id.action_post()
-            if payment.state == 'draft':
-                payment.with_context(skip_retention_state_check=True, skip_manually_modified_check=True).action_post()
+            payment.action_post()
 
         Rate = self.env["res.currency.rate"]
         if not payment.tax_today or payment.tax_today == 0:
@@ -1793,10 +1792,11 @@ class AccountRetention(models.Model):
 
         # Auto-reparación de monto y tasa en pagos creados con amount = 0
         total_retention_vef = sum((payment.retention_line_ids or payment.retention_id.retention_line_ids).mapped("foreign_retention_amount"))
-        if total_retention_vef > 0 and (payment.currency_id.is_zero(payment.amount) or abs(payment.amount - total_retention_vef) > 0.01):
-            _logger.info(f"Reparando monto en pago {payment.id}: de {payment.amount} a {total_retention_vef}")
-            if payment.move_id and payment.move_id.state == 'posted':
-                payment.move_id.button_draft()
+        has_zero_lines = any(l.debit == 0.0 and l.credit == 0.0 for l in payment.move_id.line_ids)
+        if total_retention_vef > 0 and (payment.currency_id.is_zero(payment.amount) or abs(payment.amount - total_retention_vef) > 0.01 or has_zero_lines):
+            _logger.info(f"Reparando monto y líneas en pago {payment.id}: de {payment.amount} a {total_retention_vef}")
+            if payment.move_id and payment.move_id.line_ids.filtered(lambda l: l.reconciled):
+                payment.move_id.line_ids.remove_move_reconcile()
             if payment.state != 'draft':
                 payment.action_draft()
             rate = payment.foreign_rate or (payment.retention_line_ids and payment.retention_line_ids[0].foreign_currency_rate) or (facturas and facturas[0].tax_today) or 1.0
@@ -1805,12 +1805,10 @@ class AccountRetention(models.Model):
                 "tax_today": rate,
                 "foreign_rate": rate,
             })
+            payment._synchronize_to_moves({'amount', 'currency_id', 'payment_type', 'partner_id', 'date'})
             if hasattr(payment, '_currency_equal'):
                 payment._currency_equal()
-            if payment.move_id and payment.move_id.state == 'draft':
-                payment.move_id.action_post()
-            if payment.state == 'draft':
-                payment.with_context(skip_retention_state_check=True, skip_manually_modified_check=True).action_post()
+            payment.action_post()
 
         Rate = self.env["res.currency.rate"]
         if not payment.tax_today or payment.tax_today == 0:
