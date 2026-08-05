@@ -126,6 +126,9 @@ class AccountPayment(models.Model):
         """
         res = super()._synchronize_to_moves(changed_fields)
 
+        if self.env.context.get("skip_retention_name_sync"):
+            return res
+
         account_move_name_by_retention_type = {
             "iva": "RIV",
             "islr": "RIS",
@@ -133,7 +136,8 @@ class AccountPayment(models.Model):
         }
 
         for payment in self.filtered("is_retention").with_context(
-            skip_account_move_synchronization=True
+            skip_account_move_synchronization=True,
+            skip_retention_name_sync=True,
         ):
             if not all((payment.retention_line_ids, payment.retention_id.number)):
                 continue
@@ -165,15 +169,16 @@ class AccountPayment(models.Model):
             if conflicts:
                 for conf in conflicts.filtered(lambda m: m.state == 'cancel'):
                     new_conf_name = self._get_next_canceled_name("account.move", conf.name, conf.company_id.id)
-                    conf.write({"name": new_conf_name})
-                    conf.line_ids.write({"name": new_conf_name})
-                    if conf.payment_id:
-                        conf.payment_id.write({"name": new_conf_name})
+                    conf.with_context(skip_retention_name_sync=True).write({"name": new_conf_name})
+                    conf.line_ids.with_context(skip_retention_name_sync=True).write({"name": new_conf_name})
+                    if conf.payment_id and conf.payment_id.name != new_conf_name:
+                        conf.payment_id.with_context(skip_retention_name_sync=True).write({"name": new_conf_name})
 
-            vals_to_change = {"name": target_name}
-            move.write(vals_to_change)
-            move.line_ids.write(vals_to_change)
-            payment.write({"name": target_name})
+            if move.name != target_name:
+                move.with_context(skip_retention_name_sync=True).write({"name": target_name})
+                move.line_ids.with_context(skip_retention_name_sync=True).write({"name": target_name})
+            if payment.name != target_name:
+                payment.with_context(skip_retention_name_sync=True).write({"name": target_name})
 
         return res
 
@@ -181,11 +186,11 @@ class AccountPayment(models.Model):
         for payment in self:
             if payment.name and payment.name != "/" and not payment.name.endswith("-canc") and "-canc-" not in payment.name:
                 canc_pname = self._get_next_canceled_name("account.payment", payment.name, payment.company_id.id)
-                payment.write({"name": canc_pname})
+                payment.with_context(skip_retention_name_sync=True).write({"name": canc_pname})
             if payment.move_id and payment.move_id.name and payment.move_id.name != "/" and not payment.move_id.name.endswith("-canc") and "-canc-" not in payment.move_id.name:
                 canc_mname = self._get_next_canceled_name("account.move", payment.move_id.name, payment.company_id.id)
-                payment.move_id.write({"name": canc_mname})
-                payment.move_id.line_ids.write({"name": canc_mname})
+                payment.move_id.with_context(skip_retention_name_sync=True).write({"name": canc_mname})
+                payment.move_id.line_ids.with_context(skip_retention_name_sync=True).write({"name": canc_mname})
         return super().action_cancel()
 
     # def _synchronize_to_moves(self, changed_fields):
