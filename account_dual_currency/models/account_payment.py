@@ -205,25 +205,39 @@ class AccountPayment(models.Model):
 
         is_company_usd = self.currency_id_company.name == 'USD'
         for line in res:
-            rate_to_use = self.tax_today if self.tax_today > 0 else 1.0
-            if line['account_id'] == self.destination_account_id.id:
-                rate_to_use = self.env.context.get('tasa_factura', self.tax_today) or self.tax_today or 1.0
-
-            line['tax_today'] = rate_to_use
-            if currencies_are_different and rate_to_use:
-                amount_curr = line.get('amount_currency', 0.0)
-                if is_company_usd:
-                    val = float_round(abs(amount_curr) / rate_to_use, precision_digits=2)
-                else:
-                    val = float_round(abs(amount_curr) * rate_to_use, precision_digits=2)
-
-                if amount_curr > 0:
-                    line['debit'] = val
-                    line['credit'] = 0.0
-                elif amount_curr < 0:
-                    line['debit'] = 0.0
-                    line['credit'] = val
-                line['balance'] = float_round(line['debit'] - line['credit'], precision_digits=2)
+            if line['account_id'] == self.outstanding_account_id.id:
+                line['tax_today'] = self.tax_today
+                if currencies_are_different:
+                    rate_to_use = self.tax_today if self.tax_today > 0 else 1.0
+                    amount_curr = line.get('amount_currency', 0.0)
+                    if is_company_usd:
+                        val = float_round(abs(amount_curr) / rate_to_use, precision_digits=2)
+                    else:
+                        val = float_round(abs(amount_curr) * rate_to_use, precision_digits=2)
+                    if amount_curr > 0:
+                        line['debit'] = val
+                        line['credit'] = 0.0
+                    elif amount_curr < 0:
+                        line['debit'] = 0.0
+                        line['credit'] = val
+                    line['balance'] = float_round(line['debit'] - line['credit'], precision_digits=2)
+            elif line['account_id'] == self.destination_account_id.id:
+                tasa_factura = self.env.context.get('tasa_factura', self.tax_today) or self.tax_today or 1.0
+                line['tax_today'] = tasa_factura if write_off_line_vals else self.tax_today
+                if currencies_are_different:
+                    rate_to_use = line['tax_today'] if line['tax_today'] > 0 else 1.0
+                    amount_curr = line.get('amount_currency', 0.0)
+                    if is_company_usd:
+                        val = float_round(abs(amount_curr) / rate_to_use, precision_digits=2)
+                    else:
+                        val = float_round(abs(amount_curr) * rate_to_use, precision_digits=2)
+                    if amount_curr > 0:
+                        line['debit'] = val
+                        line['credit'] = 0.0
+                    elif amount_curr < 0:
+                        line['debit'] = 0.0
+                        line['credit'] = val
+                    line['balance'] = float_round(line['debit'] - line['credit'], precision_digits=2)
             else:
                 continue
             total_debit += line.get('debit', 0.0)
