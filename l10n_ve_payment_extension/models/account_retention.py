@@ -685,6 +685,7 @@ class AccountRetention(models.Model):
                 "payment_method_line_id": payment_method_line.id if payment_method_line else False,
                 "outstanding_account_id": outstanding_account_id,
                 "foreign_rate": foreign_rate,
+                "tax_today": foreign_rate,
                 "currency_id": currency_vef.id,
                 "amount": total_retention_vef,
                 "date": self.date_accounting or fields.Date.context_today(self),
@@ -694,11 +695,17 @@ class AccountRetention(models.Model):
             payment = existing_payments.get(move)
             if payment and payment.state == "draft":
                 payment.write(payment_vals)
+                if hasattr(payment, 'foreign_inverse_rate'):
+                    payment.write({
+                        "tax_today": payment.foreign_rate or foreign_rate or 1.0,
+                        "foreign_inverse_rate": Rate.compute_inverse_rate(payment.foreign_rate or foreign_rate or 1.0)
+                    })
             elif not payment:
                 payment = Payment.create(payment_vals)
                 if hasattr(payment, 'foreign_inverse_rate'):
                     payment.write({
-                        "foreign_inverse_rate": Rate.compute_inverse_rate(payment.foreign_rate)
+                        "tax_today": payment.foreign_rate or foreign_rate or 1.0,
+                        "foreign_inverse_rate": Rate.compute_inverse_rate(payment.foreign_rate or foreign_rate or 1.0)
                     })
             else:
                 payments_to_keep |= payment
@@ -791,6 +798,7 @@ class AccountRetention(models.Model):
                 "payment_method_line_id": payment_method_line.id if payment_method_line else False,
                 "outstanding_account_id": outstanding_account_id,
                 "foreign_rate": foreign_rate,
+                "tax_today": foreign_rate,
                 "currency_id": currency_vef.id,
                 "amount": total_retention_vef,
                 "date": self.date_accounting or fields.Date.context_today(self),
@@ -800,11 +808,17 @@ class AccountRetention(models.Model):
             payment = existing_payments.get(move)
             if payment and payment.state == "draft":
                 payment.write(payment_vals)
+                if hasattr(payment, 'foreign_inverse_rate'):
+                    payment.write({
+                        "tax_today": payment.foreign_rate or foreign_rate or 1.0,
+                        "foreign_inverse_rate": Rate.compute_inverse_rate(payment.foreign_rate or foreign_rate or 1.0)
+                    })
             elif not payment:
                 payment = Payment.create(payment_vals)
                 if hasattr(payment, 'foreign_inverse_rate'):
                     payment.write({
-                        "foreign_inverse_rate": Rate.compute_inverse_rate(payment.foreign_rate)
+                        "tax_today": payment.foreign_rate or foreign_rate or 1.0,
+                        "foreign_inverse_rate": Rate.compute_inverse_rate(payment.foreign_rate or foreign_rate or 1.0)
                     })
             else:
                 payments_to_keep |= payment
@@ -1162,6 +1176,7 @@ class AccountRetention(models.Model):
             
             outstanding_account_id = pm_account_id or journal.default_account_id.id
 
+            rate_islr = lines[0].foreign_currency_rate if lines else 1.0
             payment_vals = {
                 'retention_id': self.id,
                 'partner_id': self.partner_id.id,
@@ -1171,7 +1186,8 @@ class AccountRetention(models.Model):
                 'partner_type': partner_type,
                 'payment_type': payment_type,
                 'payment_concept_id': concept.id,
-                'foreign_rate': lines[0].foreign_currency_rate,
+                'foreign_rate': rate_islr,
+                'tax_today': rate_islr,
                 'payment_method_line_id': payment_method_line.id if payment_method_line else False,
                 'outstanding_account_id': outstanding_account_id,
                 'amount': total_retention_vef,
@@ -1184,8 +1200,18 @@ class AccountRetention(models.Model):
             payment = existing_payments.get((concept, move))
             if payment and payment.state == 'draft':
                 payment.write(payment_vals)
+                if hasattr(payment, 'foreign_inverse_rate'):
+                    payment.write({
+                        "tax_today": payment.foreign_rate or rate_islr,
+                        "foreign_inverse_rate": Rate.compute_inverse_rate(payment.foreign_rate or rate_islr)
+                    })
             elif not payment:
                 payment = Payment.create(payment_vals)
+                if hasattr(payment, 'foreign_inverse_rate'):
+                    payment.write({
+                        "tax_today": payment.foreign_rate or rate_islr,
+                        "foreign_inverse_rate": Rate.compute_inverse_rate(payment.foreign_rate or rate_islr)
+                    })
             else:
                 payments_to_keep |= payment
                 continue
@@ -1328,7 +1354,9 @@ class AccountRetention(models.Model):
             lines_by_concept[line.payment_concept_id] += line
     
         payments = self.env['account.payment']
+        Rate = self.env["res.currency.rate"]
         for concept, lines in lines_by_concept.items():
+            rate_legacy = lines[0].foreign_currency_rate if lines else 1.0
             payment_vals = {
                 'retention_id': self.id,
                 'partner_id': self.partner_id.id,
@@ -1338,7 +1366,8 @@ class AccountRetention(models.Model):
                 'partner_type': 'supplier' if self.type == 'in_invoice' else 'customer',
                 'payment_type': 'outbound' if self.type == 'in_invoice' else 'inbound',
                 'payment_concept_id': concept.id,
-                'foreign_rate': lines[0].foreign_currency_rate,
+                'foreign_rate': rate_legacy,
+                'tax_today': rate_legacy,
                 'retention_line_ids': [(6, 0, lines.ids)],
                 'amount': sum(lines.mapped('retention_amount')),
                 'currency_id': self.env.company.currency_id.id,
@@ -1346,6 +1375,11 @@ class AccountRetention(models.Model):
              }
         
             payment = Payment.create(payment_vals)
+            if hasattr(payment, 'foreign_inverse_rate'):
+                payment.write({
+                    "tax_today": payment.foreign_rate or rate_legacy,
+                    "foreign_inverse_rate": Rate.compute_inverse_rate(payment.foreign_rate or rate_legacy)
+                })
             payments += payment
     
         return payments   
@@ -1649,6 +1683,24 @@ class AccountRetention(models.Model):
         if not facturas:
             _logger.warning("No hay facturas publicadas vinculadas a este pago")
             return
+
+        # Auto-reparación de tasa 0.0 en pagos creados antes de este fix
+        Rate = self.env["res.currency.rate"]
+        if not payment.tax_today or payment.tax_today == 0:
+            rate = (
+                payment.foreign_rate
+                or (payment.retention_line_ids and payment.retention_line_ids[0].foreign_currency_rate)
+                or (facturas and facturas[0].tax_today)
+                or 1.0
+            )
+            payment.write({
+                "tax_today": rate,
+                "foreign_rate": rate,
+                "foreign_inverse_rate": Rate.compute_inverse_rate(rate),
+            })
+            if payment.move_id:
+                payment.move_id.write({"tax_today": rate})
+                payment.move_id.line_ids.write({"tax_today": rate})
             
         # Buscar líneas en el pago que apunten a cuentas por pagar y no estén reconciliadas
         payment_payable_lines = payment.move_id.line_ids.filtered(
@@ -1659,9 +1711,9 @@ class AccountRetention(models.Model):
             return
             
         for factura in facturas:
-            # Buscar en la factura las líneas por pagar no reconciliadas de la misma cuenta
+            # Buscar en la factura las líneas por pagar no reconciliadas de la misma cuenta o tipo
             invoice_payable_lines = factura.line_ids.filtered(
-                lambda l: l.account_id == payment_payable_lines[0].account_id 
+                lambda l: (l.account_id == payment_payable_lines[0].account_id or l.account_id.account_type == 'liability_payable') 
                          and not l.reconciled
             )
             if not invoice_payable_lines:
@@ -1669,13 +1721,10 @@ class AccountRetention(models.Model):
                 continue
                 
             try:
-                # El ORM nativo se encarga de cruzar las líneas y resolver 
-                # la diferencia VEF/USD con sus propios asientos de ajuste
                 (payment_payable_lines[0] | invoice_payable_lines[0]).reconcile()
                 _logger.info(f"Reconciliación exitosa: pago {payment.name} ↔ factura {factura.name}")
             except Exception as e:
                 _logger.warning(f"Error reconciliando pago {payment.name} con factura {factura.name}: {e}")
-                # No detener toda la ejecución si una factura falla
                 pass
 
     def _reconcile_customer_payment(self, payment):
@@ -1698,6 +1747,24 @@ class AccountRetention(models.Model):
         )
         if not facturas:
             return
+
+        # Auto-reparación de tasa 0.0 en pagos creados antes de este fix
+        Rate = self.env["res.currency.rate"]
+        if not payment.tax_today or payment.tax_today == 0:
+            rate = (
+                payment.foreign_rate
+                or (payment.retention_line_ids and payment.retention_line_ids[0].foreign_currency_rate)
+                or (facturas and facturas[0].tax_today)
+                or 1.0
+            )
+            payment.write({
+                "tax_today": rate,
+                "foreign_rate": rate,
+                "foreign_inverse_rate": Rate.compute_inverse_rate(rate),
+            })
+            if payment.move_id:
+                payment.move_id.write({"tax_today": rate})
+                payment.move_id.line_ids.write({"tax_today": rate})
             
         payment_receivable_lines = payment.move_id.line_ids.filtered(
             lambda l: l.account_id.account_type == 'asset_receivable' and not l.reconciled
@@ -1708,7 +1775,7 @@ class AccountRetention(models.Model):
             
         for factura in facturas:
             invoice_receivable_lines = factura.line_ids.filtered(
-                lambda l: l.account_id == payment_receivable_lines[0].account_id 
+                lambda l: (l.account_id == payment_receivable_lines[0].account_id or l.account_id.account_type == 'asset_receivable') 
                          and not l.reconciled
             )
             if not invoice_receivable_lines:
