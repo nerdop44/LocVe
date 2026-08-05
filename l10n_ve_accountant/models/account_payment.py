@@ -176,7 +176,7 @@ class AccountPayment(models.Model):
     #     if 'is_manually_modified' not in self.env['account.move.line']._fields:
     #         self = self.with_context(skip_manually_modified_check=True)
     #     return super().action_post()
-    @api.depends("date", "tax_today", "currency_id")
+    @api.depends("date", "currency_id")
     def _compute_rate(self):
         Rate = self.env["res.currency.rate"]
         for payment in self:

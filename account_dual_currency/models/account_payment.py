@@ -42,6 +42,10 @@ class AccountPayment(models.Model):
     def _get_default_tasa(self):
         return self.env.company.currency_id_dif.inverse_rate
 
+    @api.depends('tax_today')
+    def _compute_rate(self):
+        super()._compute_rate()
+
     @api.depends('currency_id_dif','currency_id','amount','tax_today')
     def _currency_equal(self):
         for rec in self:
