@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
-import datetime
 
 class IgtfReportWizard(models.TransientModel):
     _name = "igtf.report.wizard"
@@ -31,13 +30,18 @@ class IgtfReportWizard(models.TransientModel):
             ("date", ">=", self.date_from),
             ("date", "<=", self.date_to),
             ("state", "=", "posted"),
+            "|", "|",
             ("is_igtf_on_foreign_exchange", "=", True),
+            ("igtf_amount", ">", 0.0),
+            ("journal_id.is_igtf", "=", True),
         ]
         
         payments = self.env["account.payment"].search(domain, order="date asc, id asc")
         
-        return {
-            "name": _("Consolidado IGTF SENIAT"),
+        view_id = self.env.ref("l10n_ve_igtf.view_igtf_consolidated_payment_tree", raise_if_not_found=False)
+        
+        res = {
+            "name": _("Consolidado IGTF SENIAT (%s al %s)") % (self.date_from, self.date_to),
             "type": "ir.actions.act_window",
             "res_model": "account.payment",
             "view_mode": "list,form",
@@ -45,6 +49,8 @@ class IgtfReportWizard(models.TransientModel):
             "context": {
                 "create": False,
                 "delete": False,
-                "search_default_posted": 1,
             },
         }
+        if view_id:
+            res["views"] = [(view_id.id, "list"), (False, "form")]
+        return res

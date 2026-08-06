@@ -325,11 +325,15 @@ class AccountTax(models.Model):
                 name = subtotal.get("name")
                 f_subtotals = res.get("foreign_subtotals", [])
                 f_subtotal_formatted = f_subtotals[sub_index].get("formatted_amount") if len(f_subtotals) > sub_index else formatLang(self.env, 0.0, currency_obj=foreign_currency)
+                base_formatted = formatLang(self.env, subtotal.get("base_amount_currency", 0.0), currency_obj=currency)
+                
+                row_usd = base_formatted if is_invoice_in_usd else f_subtotal_formatted
+                row_bs = f_subtotal_formatted if is_invoice_in_usd else base_formatted
                 
                 unified_rows.append({
                     "label": name,
-                    "usd": f_subtotal_formatted,
-                    "bs": formatLang(self.env, subtotal.get("base_amount_currency", 0.0), currency_obj=currency),
+                    "usd": row_usd,
+                    "bs": row_bs,
                     "is_total": False,
                     "is_subtotal": True,
                 })
@@ -338,19 +342,26 @@ class AccountTax(models.Model):
                     for g_index, group in enumerate(groups_by_subtotal[name]):
                         f_groups = groups_by_foreign_subtotal.get(name, [])
                         f_group_formatted = f_groups[g_index].get("formatted_tax_group_amount") if len(f_groups) > g_index else formatLang(self.env, 0.0, currency_obj=foreign_currency)
+                        base_group_formatted = group.get("formatted_tax_group_amount")
+                        
+                        grp_usd = base_group_formatted if is_invoice_in_usd else f_group_formatted
+                        grp_bs = f_group_formatted if is_invoice_in_usd else base_group_formatted
                         
                         unified_rows.append({
                             "label": group.get("tax_group_name"),
-                            "usd": f_group_formatted,
-                            "bs": group.get("formatted_tax_group_amount"),
+                            "usd": grp_usd,
+                            "bs": grp_bs,
                             "is_total": False,
                             "is_subtotal": False,
                         })
 
+            tot_usd = res["formatted_amount_total"] if is_invoice_in_usd else res["foreign_formatted_amount_total"]
+            tot_bs = res["foreign_formatted_amount_total"] if is_invoice_in_usd else res["formatted_amount_total"]
+
             unified_rows.append({
                 "label": _("TOTAL"),
-                "usd": res["foreign_formatted_amount_total"],
-                "bs": res["formatted_amount_total"],
+                "usd": tot_usd,
+                "bs": tot_bs,
                 "is_total": True,
                 "is_subtotal": False,
             })
