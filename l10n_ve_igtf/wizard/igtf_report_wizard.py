@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
+import datetime
 
 class IgtfReportWizard(models.TransientModel):
     _name = "igtf.report.wizard"
@@ -20,7 +21,7 @@ class IgtfReportWizard(models.TransientModel):
     date_to = fields.Date(
         string="Fecha Hasta",
         required=True,
-        default=lambda self: fields.Date.context_today(self),
+        default=lambda self: (fields.Date.context_today(self).replace(day=28) + datetime.timedelta(days=4)).replace(day=1) - datetime.timedelta(days=1),
     )
 
     def action_generate_report(self):
@@ -29,7 +30,7 @@ class IgtfReportWizard(models.TransientModel):
             ("company_id", "=", self.company_id.id),
             ("date", ">=", self.date_from),
             ("date", "<=", self.date_to),
-            ("state", "=", "posted"),
+            ("state", "in", ["in_process", "paid", "posted"]),
             "|", "|",
             ("is_igtf_on_foreign_exchange", "=", True),
             ("igtf_amount", ">", 0.0),
