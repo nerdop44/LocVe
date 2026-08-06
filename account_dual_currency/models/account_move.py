@@ -514,7 +514,8 @@ class AccountMove(models.Model):
                 move.amount_residual_bs = 0.0
             else:
                 move.amount_residual_usd = total_residual
-                if move.currency_id == move.company_currency_id:
+                is_invoice_vef = move.currency_id == move.currency_vef_id or move.currency_id.name in ('VEF', 'VES')
+                if is_invoice_vef:
                     move.amount_residual_bs = move.amount_residual
                 else:
                     move.amount_residual_bs = (move.amount_residual * move.tax_today) if move.tax_today > 0 else abs(move.amount_residual_signed)

@@ -285,14 +285,14 @@
                                   <t t-set="exento_vef" t-value="exento_orig * rate"/>
                              </t>
 
-                             <!-- IGTF Calculation (Only if Invoice is USD AND Report is NOT VEF) -->
-                             <t t-set="igtf_vef" t-value="0"/>
-                             <t t-set="igtf_usd" t-value="0"/>
-                             <t t-set="has_igtf" t-value="(o.currency_id == usd_currency) and (not is_vef_report)"/>
-                             <t t-if="has_igtf">
-                                 <t t-set="igtf_usd" t-value="usd_total * 0.03"/>
-                                 <t t-set="igtf_vef" t-value="vef_total * 0.03"/>
-                             </t>
+                              <!-- IGTF Calculation (If Invoice is USD or has IGTF) -->
+                              <t t-set="igtf_vef" t-value="0"/>
+                              <t t-set="igtf_usd" t-value="0"/>
+                              <t t-set="has_igtf" t-value="o.currency_id == usd_currency or getattr(o, 'is_two_percentage', False) or (getattr(o, 'bi_igtf', 0) > 0)"/>
+                              <t t-if="has_igtf">
+                                  <t t-set="igtf_usd" t-value="usd_total * 0.03"/>
+                                  <t t-set="igtf_vef" t-value="vef_total * 0.03"/>
+                              </t>
 
                             <!-- DEFINITION OF TABLES -->
                             <!-- USD Table Block -->
