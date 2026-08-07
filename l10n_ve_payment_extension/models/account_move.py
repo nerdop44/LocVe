@@ -190,7 +190,8 @@ class AccountMoveRetention(models.Model):
         sum_invoice_amount = sum(
             islr_retention.filtered(lambda rl: rl.state != "cancel").mapped("invoice_amount")
         )
-        if sum_invoice_amount > self.amount_untaxed:
+        amount_untaxed = self.amount_untaxed if hasattr(self, 'amount_untaxed') and self.amount_untaxed > 0 else (self.tax_totals.get('amount_untaxed') if isinstance(self.tax_totals, dict) and 'amount_untaxed' in self.tax_totals else self.amount_total)
+        if sum_invoice_amount > amount_untaxed:
             raise UserError(
                 _("The amount of the retention is greater than the total amount of the invoice.")
             )
