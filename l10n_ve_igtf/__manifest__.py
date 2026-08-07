@@ -7,7 +7,7 @@
     'author': 'Ing. Nerdo Jose Pulido Aguirre',
     'website': 'https://github.com/nerdop44',
     'category': 'Accounting/Accounting',
-    'version': '18.0.2.0.3',
+    'version': '18.0.2.0.4',
     'depends': ['base', 'l10n_ve_rate', 'l10n_ve_tax', 'l10n_ve_invoice', 'l10n_ve_tax_payer', 'l10n_ve_base', 'l10n_ve_payment_extension'],
     'data': ['security/ir.model.access.csv', 'views/account_journal.xml', 'views/account_payment.xml', 'views/res_config_settings.xml', 'views/res_company.xml', 'report/invoice_free_form.xml', 'report/report_igtf_consolidated.xml', 'wizard/account_payment_register.xml', 'wizard/igtf_report_wizard_views.xml'],
     'images': ['static/description/icon.png'],
