@@ -173,17 +173,7 @@
 
 
 
-        <record id="locve_invoice_view_in_invoice_tree" model="ir.ui.view">
-            <field name="name">account.move.in.invoice.tree.locve</field>
-            <field name="model">account.move</field>
-            <field name="inherit_id" ref="account.view_invoice_tree"/>
-            <field name="arch" type="xml">
-                <xpath expr="//field[@name='ref']" position="after">
-                    <field name="amount_total_bs" string="Total Bs." optional="show"/>
-                    <field name="iva_voucher_number" string="Comprobante IVA" optional="show"/>
-                </xpath>
-            </field>
-        </record>
+
 
         <!-- Acción para abrir el wizard de la Guía de Despacho desde el menú Acciones/Imprimir de la Factura -->
         <record id="action_l10n_ve_delivery_guide_wizard_move" model="ir.actions.act_window">
