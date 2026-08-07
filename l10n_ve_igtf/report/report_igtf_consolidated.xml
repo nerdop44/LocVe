@@ -39,9 +39,9 @@
                     </style>
 
                     <t t-set="payments" t-value="docs.get_report_payments() if hasattr(docs, 'get_report_payments') else docs"/>
-                    <t t-set="comp" t-value="payments[0].company_id if payments else res_company"/>
-                    <t t-set="d_from" t-value="docs.date_from if hasattr(docs, 'date_from') else (min(payments.mapped('date')) if payments else False)"/>
-                    <t t-set="d_to" t-value="docs.date_to if hasattr(docs, 'date_to') else (max(payments.mapped('date')) if payments else False)"/>
+                    <t t-set="comp" t-value="payments[:1].company_id or env.company"/>
+                    <t t-set="d_from" t-value="getattr(docs, 'date_from', False) or (payments and min(payments.mapped('date')) or '')"/>
+                    <t t-set="d_to" t-value="getattr(docs, 'date_to', False) or (payments and max(payments.mapped('date')) or '')"/>
 
                     <!-- Encabezado del Reporte SENIAT -->
                     <div class="row mb-3">
