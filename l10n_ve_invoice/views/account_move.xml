@@ -178,7 +178,7 @@
             <field name="model">account.move</field>
             <field name="inherit_id" ref="account.view_in_invoice_tree"/>
             <field name="arch" type="xml">
-                <xpath expr="//field[@name='amount_total_signed']" position="after">
+                <xpath expr="//field[@name='amount_total_in_currency_signed'][1]" position="after">
                     <field name="foreign_amount_total" string="Total Bs." optional="show"/>
                     <field name="iva_voucher_number" string="Comprobante IVA" optional="show"/>
                 </xpath>
