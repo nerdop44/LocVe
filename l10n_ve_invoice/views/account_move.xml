@@ -179,7 +179,7 @@
             <field name="inherit_id" ref="account.view_invoice_tree"/>
             <field name="arch" type="xml">
                 <xpath expr="//field[@name='ref']" position="after">
-                    <field name="foreign_amount_total" string="Total Bs." optional="show"/>
+                    <field name="amount_total_bs" string="Total Bs." optional="show"/>
                     <field name="iva_voucher_number" string="Comprobante IVA" optional="show"/>
                 </xpath>
             </field>
