@@ -6,16 +6,20 @@
         <field name="arch" type="xml">
             <form string="Reporte Consolidado IGTF SENIAT">
                 <group>
-                    <group>
+                    <group string="Período y Empresa">
                         <field name="company_id" options="{'no_create': True}"/>
-                    </group>
-                    <group>
                         <field name="date_from"/>
                         <field name="date_to"/>
                     </group>
+                    <group string="Control de Declaración SENIAT">
+                        <field name="declaration_status_filter"/>
+                        <field name="declaration_ref" placeholder="Ej. DECL-IGTF-2026-Q1"/>
+                    </group>
                 </group>
                 <footer>
-                    <button name="action_generate_report" string="Generar Consolidado" type="object" class="btn-primary"/>
+                    <button name="action_generate_report" string="Ver en Pantalla (Vista Lista)" type="object" class="btn-primary"/>
+                    <button name="action_print_pdf" string="Imprimir PDF SENIAT" type="object" class="btn-success" icon="fa-print"/>
+                    <button name="action_mark_as_declared" string="Marcar como Declarado SENIAT" type="object" class="btn-info" icon="fa-check-square-o" confirm="¿Desea marcar todas las operaciones del período seleccionado como DECLARADAS ante el SENIAT?"/>
                     <button string="Cancelar" class="btn-secondary" special="cancel"/>
                 </footer>
             </form>
@@ -34,11 +38,15 @@
                 <field name="partner_id"/>
                 <field name="journal_id"/>
                 <field name="currency_id"/>
-                <field name="amount" sum="Total Cobrado/Pagado"/>
+                <field name="amount" sum="Total Divisa ($)"/>
                 <field name="igtf_percentage"/>
-                <field name="igtf_amount" sum="Total IGTF"/>
-                <field name="is_igtf_on_foreign_exchange"/>
-                <field name="state"/>
+                <field name="igtf_amount" sum="Total IGTF ($)"/>
+                <field name="igtf_rate" string="Tasa BCV (Bs.)"/>
+                <field name="bi_igtf_bs" sum="Total Base (Bs.)"/>
+                <field name="igtf_amount_bs" sum="Total IGTF a Enterar (Bs.)"/>
+                <field name="igtf_declaration_status" widget="badge" decoration-warning="igtf_declaration_status == 'pending'" decoration-success="igtf_declaration_status in ('declared', 'paid')"/>
+                <field name="igtf_declaration_ref" string="Planilla SENIAT"/>
+                <field name="state" optional="hide"/>
             </list>
         </field>
     </record>

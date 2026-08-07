@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Action for PDF Report -->
+    <record id="action_report_igtf_consolidated" model="ir.actions.report">
+        <field name="name">Declaración Quincenal IGTF SENIAT (PDF)</field>
+        <field name="model">igtf.report.wizard</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">l10n_ve_igtf.report_igtf_consolidated_template</field>
+        <field name="report_file">l10n_ve_igtf.report_igtf_consolidated_template</field>
+        <field name="print_report_name">'Declaracion_IGTF_SENIAT_' + (object.date_from or '').replace('-','') + '_' + (object.date_to or '').replace('-','')</field>
+        <field name="binding_model_id" ref="model_igtf_report_wizard"/>
+        <field name="binding_type">report</field>
+    </record>
+
+    <!-- Main QWeb Template -->
+    <template id="report_igtf_consolidated_template">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="doc">
+                <t t-call="web.external_layout">
+                    <div class="page" style="font-size: 11px;">
+                        <style>
+                            .table-igtf th {
+                                background-color: #f2f2f2;
+                                font-weight: bold;
+                                font-size: 10px;
+                                border: 1px solid #ddd;
+                            }
+                            .table-igtf td {
+                                font-size: 10px;
+                                border: 1px solid #ddd;
+                                vertical-align: middle;
+                            }
+                            .summary-card {
+                                border: 2px solid #2b5797;
+                                background-color: #f8f9fa;
+                                padding: 12px;
+                                border-radius: 4px;
+                                margin-top: 15px;
+                            }
+                        </style>
+
+                        <!-- Encabezado del Reporte SENIAT -->
+                        <div class="row mb-3">
+                            <div class="col-8">
+                                <h3 style="margin-bottom: 2px; color: #2b5797;"><strong>REPORTE CONSOLIDADO IGTF SENIAT</strong></h3>
+                                <p style="margin-bottom: 0;"><strong>República Bolivariana de Venezuela — Providencia SNAT/2022/000013</strong></p>
+                                <span><strong>Empresa:</strong> <t t-esc="doc.company_id.name"/> | <strong>RIF:</strong> <t t-esc="doc.company_id.vat or 'N/A'"/></span>
+                            </div>
+                            <div class="col-4 text-end">
+                                <span class="badge bg-primary fs-6"><strong>Período Fiscal Quincenal</strong></span><br/>
+                                <span><strong>Desde:</strong> <t t-esc="doc.date_from"/> <strong>Hasta:</strong> <t t-esc="doc.date_to"/></span>
+                            </div>
+                        </div>
+
+                        <t t-set="payments" t-value="doc.get_report_payments()"/>
+                        <t t-set="cust_payments" t-value="payments.filtered(lambda p: p.payment_type == 'inbound')"/>
+                        <t t-set="supp_payments" t-value="payments.filtered(lambda p: p.payment_type == 'outbound')"/>
+
+                        <!-- SECCIÓN 1: COBROS PERCIBIDOS A CLIENTES (3%) -->
+                        <div class="mt-3">
+                            <h5 style="color: #2b5797; border-bottom: 2px solid #2b5797; padding-bottom: 2px;">
+                                1. IGTF Percibido en Cobros a Clientes (Percepción 3%)
+                            </h5>
+                            <table class="table table-sm table-igtf mb-2">
+                                <thead>
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>Comprobante</th>
+                                        <th>Cliente</th>
+                                        <th>RIF/C.I.</th>
+                                        <th>Diario</th>
+                                        <th class="text-end">Monto Divisa ($)</th>
+                                        <th class="text-end">Tasa BCV (Bs.)</th>
+                                        <th class="text-end">Base (Bs.)</th>
+                                        <th class="text-end">IGTF Percibido ($)</th>
+                                        <th class="text-end"><strong>IGTF a Enterar (Bs.)</strong></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <t t-set="total_cust_bs" t-value="0.0"/>
+                                    <t t-set="total_cust_usd" t-value="0.0"/>
+                                    <t t-set="total_cust_bi_bs" t-value="0.0"/>
+                                    <t t-foreach="cust_payments" t-as="p">
+                                        <t t-set="total_cust_usd" t-value="total_cust_usd + p.igtf_amount"/>
+                                        <t t-set="total_cust_bs" t-value="total_cust_bs + p.igtf_amount_bs"/>
+                                        <t t-set="total_cust_bi_bs" t-value="total_cust_bi_bs + p.bi_igtf_bs"/>
+                                        <tr>
+                                            <td><t t-esc="p.date"/></td>
+                                            <td><t t-esc="p.name"/></td>
+                                            <td><t t-esc="p.partner_id.name"/></td>
+                                            <td><t t-esc="p.partner_id.vat or ''"/></td>
+                                            <td><t t-esc="p.journal_id.name"/></td>
+                                            <td class="text-end"><t t-esc="p.amount" t-options='{"widget": "monetary", "display_currency": p.currency_id}'/></td>
+                                            <td class="text-end"><t t-esc="'%.4f' % p.igtf_rate"/> Bs.</td>
+                                            <td class="text-end"><t t-esc="'%.2f' % p.bi_igtf_bs"/> Bs.</td>
+                                            <td class="text-end">$ <t t-esc="'%.2f' % p.igtf_amount"/></td>
+                                            <td class="text-end"><strong><t t-esc="'%.2f' % p.igtf_amount_bs"/> Bs.</strong></td>
+                                        </tr>
+                                    </t>
+                                    <tr t-if="not cust_payments">
+                                        <td colspan="10" class="text-center text-muted">No se registraron percepciones de IGTF a clientes en el período.</td>
+                                    </tr>
+                                </tbody>
+                                <tfoot>
+                                    <tr style="background-color: #e9ecef; font-weight: bold;">
+                                        <td colspan="7" class="text-end">TOTAL PERCEPCIÓN CLIENTES:</td>
+                                        <td class="text-end"><t t-esc="'%.2f' % total_cust_bi_bs"/> Bs.</td>
+                                        <td class="text-end">$ <t t-esc="'%.2f' % total_cust_usd"/></td>
+                                        <td class="text-end" style="color: #2b5797;"><t t-esc="'%.2f' % total_cust_bs"/> Bs.</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+
+                        <!-- SECCIÓN 2: PAGOS SOPORTADOS A PROVEEDORES -->
+                        <div class="mt-3">
+                            <h5 style="color: #2b5797; border-bottom: 2px solid #2b5797; padding-bottom: 2px;">
+                                2. IGTF Soportado en Pagos a Proveedores
+                            </h5>
+                            <table class="table table-sm table-igtf mb-2">
+                                <thead>
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>Comprobante</th>
+                                        <th>Proveedor</th>
+                                        <th>RIF/C.I.</th>
+                                        <th>Diario</th>
+                                        <th class="text-end">Monto Divisa ($)</th>
+                                        <th class="text-end">Tasa BCV (Bs.)</th>
+                                        <th class="text-end">Base (Bs.)</th>
+                                        <th class="text-end">IGTF Soportado ($)</th>
+                                        <th class="text-end"><strong>IGTF Soportado (Bs.)</strong></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <t t-set="total_supp_bs" t-value="0.0"/>
+                                    <t t-set="total_supp_usd" t-value="0.0"/>
+                                    <t t-set="total_supp_bi_bs" t-value="0.0"/>
+                                    <t t-foreach="supp_payments" t-as="p">
+                                        <t t-set="total_supp_usd" t-value="total_supp_usd + p.igtf_amount"/>
+                                        <t t-set="total_supp_bs" t-value="total_supp_bs + p.igtf_amount_bs"/>
+                                        <t t-set="total_supp_bi_bs" t-value="total_supp_bi_bs + p.bi_igtf_bs"/>
+                                        <tr>
+                                            <td><t t-esc="p.date"/></td>
+                                            <td><t t-esc="p.name"/></td>
+                                            <td><t t-esc="p.partner_id.name"/></td>
+                                            <td><t t-esc="p.partner_id.vat or ''"/></td>
+                                            <td><t t-esc="p.journal_id.name"/></td>
+                                            <td class="text-end"><t t-esc="p.amount" t-options='{"widget": "monetary", "display_currency": p.currency_id}'/></td>
+                                            <td class="text-end"><t t-esc="'%.4f' % p.igtf_rate"/> Bs.</td>
+                                            <td class="text-end"><t t-esc="'%.2f' % p.bi_igtf_bs"/> Bs.</td>
+                                            <td class="text-end">$ <t t-esc="'%.2f' % p.igtf_amount"/></td>
+                                            <td class="text-end"><strong><t t-esc="'%.2f' % p.igtf_amount_bs"/> Bs.</strong></td>
+                                        </tr>
+                                    </t>
+                                    <tr t-if="not supp_payments">
+                                        <td colspan="10" class="text-center text-muted">No se registraron pagos de IGTF a proveedores en el período.</td>
+                                    </tr>
+                                </tbody>
+                                <tfoot>
+                                    <tr style="background-color: #e9ecef; font-weight: bold;">
+                                        <td colspan="7" class="text-end">TOTAL SOPORTADO PROVEEDORES:</td>
+                                        <td class="text-end"><t t-esc="'%.2f' % total_supp_bi_bs"/> Bs.</td>
+                                        <td class="text-end">$ <t t-esc="'%.2f' % total_supp_usd"/></td>
+                                        <td class="text-end" style="color: #2b5797;"><t t-esc="'%.2f' % total_supp_bs"/> Bs.</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+
+                        <!-- RESUMEN FINAL SENIAT -->
+                        <div class="summary-card">
+                            <div class="row">
+                                <div class="col-7">
+                                    <h5 style="margin-bottom: 4px; color: #2b5797;"><strong>RESUMEN DE LIQUIDACIÓN DE IGTF ANTE EL SENIAT</strong></h5>
+                                    <span>Montos expresados en Bolívares (Bs.) liquidados a la tasa de cambio oficial BCV del día de la operación.</span>
+                                </div>
+                                <div class="col-5">
+                                    <table class="table table-borderless table-sm mb-0">
+                                        <tr>
+                                            <td>(+) Total IGTF Percibido (Clientes):</td>
+                                            <td class="text-end"><strong><t t-esc="'%.2f' % total_cust_bs"/> Bs.</strong></td>
+                                        </tr>
+                                        <tr>
+                                            <td>(-) Total IGTF Soportado (Proveedores):</td>
+                                            <td class="text-end"><strong><t t-esc="'%.2f' % total_supp_bs"/> Bs.</strong></td>
+                                        </tr>
+                                        <tr style="border-top: 2px solid #2b5797;">
+                                            <td><h6 class="mb-0"><strong>TOTAL NETO A ENTERAR EN BS:</strong></h6></td>
+                                            <td class="text-end"><h5 class="mb-0" style="color: #d9534f;"><strong><t t-esc="'%.2f' % (total_cust_bs - total_supp_bs)"/> Bs.</strong></h5></td>
+                                        </tr>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+</odoo>

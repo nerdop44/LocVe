@@ -42,6 +42,67 @@ class AccountPaymentIgtf(models.Model):
         store=True,
     )
 
+    igtf_rate = fields.Float(
+        string="Tasa BCV IGTF",
+        compute="_compute_igtf_bimonetary",
+        store=True,
+        digits=(16, 4),
+        help="Tasa BCV aplicada al momento de la percepción o pago del IGTF",
+    )
+
+    bi_igtf_bs = fields.Monetary(
+        string="Base Imponible IGTF (Bs.)",
+        currency_field="company_currency_id",
+        compute="_compute_igtf_bimonetary",
+        store=True,
+        help="Base imponible del IGTF expresada en Bolívares a la tasa del día",
+    )
+
+    igtf_amount_bs = fields.Monetary(
+        string="Monto IGTF a Enterar (Bs.)",
+        currency_field="company_currency_id",
+        compute="_compute_igtf_bimonetary",
+        store=True,
+        help="Monto del IGTF en Bolívares a enterar al SENIAT",
+    )
+
+    igtf_declaration_status = fields.Selection(
+        selection=[
+            ("pending", "Pendiente"),
+            ("declared", "Declarado SENIAT"),
+            ("paid", "Pagado SENIAT"),
+        ],
+        string="Estado Declaración SENIAT",
+        default="pending",
+        required=True,
+        copy=False,
+        store=True,
+    )
+
+    igtf_declaration_ref = fields.Char(
+        string="Ref. Planilla Declaración",
+        copy=False,
+        store=True,
+    )
+
+    @api.depends("amount", "igtf_amount", "date", "currency_id", "foreign_rate")
+    def _compute_igtf_bimonetary(self):
+        for payment in self:
+            rate = getattr(payment, "tax_today", 0.0) or getattr(payment, "foreign_rate", 0.0) or 0.0
+            if rate <= 1.0:
+                rate = payment.company_id.currency_id_dif.get_trm_systray() if getattr(payment.company_id, "currency_id_dif", False) else 1.0
+            if rate <= 0.0:
+                rate = 1.0
+
+            payment.igtf_rate = rate
+
+            if payment.currency_id.name in ("VEF", "VES"):
+                payment.bi_igtf_bs = payment.amount
+                payment.igtf_amount_bs = payment.igtf_amount
+            else:
+                payment.bi_igtf_bs = payment.amount * rate
+                payment.igtf_amount_bs = payment.igtf_amount * rate
+
     @api.depends('partner_id', 'amount', 'is_igtf_on_foreign_exchange')
     def _compute_igtf_percentage(self):
         for payment in self:
