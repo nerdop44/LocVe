@@ -50,19 +50,19 @@ class AccountPaymentIgtf(models.Model):
         help="Tasa BCV aplicada al momento de la percepción o pago del IGTF",
     )
 
-    bi_igtf_bs = fields.Monetary(
+    bi_igtf_bs = fields.Float(
         string="Base Imponible IGTF (Bs.)",
-        currency_field="company_currency_id",
         compute="_compute_igtf_bimonetary",
         store=True,
+        digits=(16, 2),
         help="Base imponible del IGTF expresada en Bolívares a la tasa del día",
     )
 
-    igtf_amount_bs = fields.Monetary(
+    igtf_amount_bs = fields.Float(
         string="Monto IGTF a Enterar (Bs.)",
-        currency_field="company_currency_id",
         compute="_compute_igtf_bimonetary",
         store=True,
+        digits=(16, 2),
         help="Monto del IGTF en Bolívares a enterar al SENIAT",
     )
 
