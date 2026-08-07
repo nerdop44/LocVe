@@ -1,21 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Action for PDF Report -->
+    <!-- Action for PDF Report from Wizard -->
     <record id="action_report_igtf_consolidated" model="ir.actions.report">
         <field name="name">Declaración Quincenal IGTF SENIAT (PDF)</field>
         <field name="model">igtf.report.wizard</field>
         <field name="report_type">qweb-pdf</field>
         <field name="report_name">l10n_ve_igtf.report_igtf_consolidated_template</field>
         <field name="report_file">l10n_ve_igtf.report_igtf_consolidated_template</field>
-        <field name="print_report_name">'Declaracion_IGTF_SENIAT_' + (object.date_from or '').replace('-','') + '_' + (object.date_to or '').replace('-','')</field>
+        <field name="print_report_name">'Declaracion_IGTF_SENIAT_' + str(object.date_from or '').replace('-','') + '_' + str(object.date_to or '').replace('-','')</field>
         <field name="binding_model_id" ref="model_igtf_report_wizard"/>
+        <field name="binding_type">report</field>
+    </record>
+
+    <!-- Action for PDF Report from Payment List View -->
+    <record id="action_report_igtf_payments_consolidated" model="ir.actions.report">
+        <field name="name">Imprimir Consolidado IGTF Seleccionados (PDF)</field>
+        <field name="model">account.payment</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">l10n_ve_igtf.report_igtf_consolidated_template</field>
+        <field name="report_file">l10n_ve_igtf.report_igtf_consolidated_template</field>
+        <field name="print_report_name">'Consolidado_IGTF_Pagos_SENIAT'</field>
+        <field name="binding_model_id" ref="account.model_account_payment"/>
         <field name="binding_type">report</field>
     </record>
 
     <!-- Main QWeb Template -->
     <template id="report_igtf_consolidated_template">
         <t t-call="web.html_container">
-            <t t-foreach="docs" t-as="doc">
+            <t t-set="is_wizard" t-value="hasattr(docs[0], 'get_report_payments')"/>
+            <t t-set="iter_docs" t-value="docs if is_wizard else [docs[0]]"/>
+            <t t-foreach="iter_docs" t-as="doc">
                 <t t-call="web.external_layout">
                     <div class="page" style="font-size: 11px;">
                         <style>
@@ -39,20 +53,23 @@
                             }
                         </style>
 
+                        <t t-set="payments" t-value="doc.get_report_payments() if is_wizard else docs"/>
+                        <t t-set="comp" t-value="doc.company_id if is_wizard else docs[0].company_id"/>
+                        <t t-set="d_from" t-value="doc.date_from if is_wizard else min(payments.mapped('date'))"/>
+                        <t t-set="d_to" t-value="doc.date_to if is_wizard else max(payments.mapped('date'))"/>
+
                         <!-- Encabezado del Reporte SENIAT -->
                         <div class="row mb-3">
                             <div class="col-8">
                                 <h3 style="margin-bottom: 2px; color: #2b5797;"><strong>REPORTE CONSOLIDADO IGTF SENIAT</strong></h3>
                                 <p style="margin-bottom: 0;"><strong>República Bolivariana de Venezuela — Providencia SNAT/2022/000013</strong></p>
-                                <span><strong>Empresa:</strong> <t t-esc="doc.company_id.name"/> | <strong>RIF:</strong> <t t-esc="doc.company_id.vat or 'N/A'"/></span>
+                                <span><strong>Empresa:</strong> <t t-esc="comp.name"/> | <strong>RIF:</strong> <t t-esc="comp.vat or 'N/A'"/></span>
                             </div>
                             <div class="col-4 text-end">
                                 <span class="badge bg-primary fs-6"><strong>Período Fiscal Quincenal</strong></span><br/>
-                                <span><strong>Desde:</strong> <t t-esc="doc.date_from"/> <strong>Hasta:</strong> <t t-esc="doc.date_to"/></span>
+                                <span><strong>Desde:</strong> <t t-esc="d_from"/> <strong>Hasta:</strong> <t t-esc="d_to"/></span>
                             </div>
                         </div>
-
-                        <t t-set="payments" t-value="doc.get_report_payments()"/>
                         <t t-set="cust_payments" t-value="payments.filtered(lambda p: p.payment_type == 'inbound')"/>
                         <t t-set="supp_payments" t-value="payments.filtered(lambda p: p.payment_type == 'outbound')"/>
 
