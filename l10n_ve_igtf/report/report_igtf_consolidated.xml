@@ -12,10 +12,24 @@
         <field name="binding_type">report</field>
     </record>
 
-    <!-- Main QWeb Template for Wizard -->
+    <!-- Action for PDF Report from Payment List View -->
+    <record id="action_report_igtf_payments_consolidated" model="ir.actions.report">
+        <field name="name">Imprimir Consolidado IGTF Seleccionados (PDF)</field>
+        <field name="model">account.payment</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">l10n_ve_igtf.report_igtf_consolidated_template</field>
+        <field name="report_file">l10n_ve_igtf.report_igtf_consolidated_template</field>
+        <field name="print_report_name">'Consolidado_IGTF_Pagos_SENIAT'</field>
+        <field name="binding_model_id" ref="account.model_account_payment"/>
+        <field name="binding_type">report</field>
+    </record>
+
+    <!-- Main QWeb Template for Wizard and Selected Payments -->
     <template id="report_igtf_consolidated_template">
         <t t-call="web.html_container">
-            <t t-foreach="docs" t-as="doc">
+            <t t-set="is_wiz" t-value="docs._name == 'igtf.report.wizard'"/>
+            <t t-set="iter_docs" t-value="docs if is_wiz else [docs]"/>
+            <t t-foreach="iter_docs" t-as="doc">
                 <t t-call="web.external_layout">
                     <div class="page" style="font-size: 11px;">
                         <style>
@@ -40,9 +54,9 @@
                         </style>
 
                         <t t-set="payments" t-value="doc.get_report_payments()"/>
-                        <t t-set="comp" t-value="doc.company_id"/>
-                        <t t-set="d_from" t-value="doc.date_from"/>
-                        <t t-set="d_to" t-value="doc.date_to"/>
+                        <t t-set="comp" t-value="doc.company_id if is_wiz else payments[:1].company_id"/>
+                        <t t-set="d_from" t-value="doc.date_from if is_wiz else min(payments.mapped('date'))"/>
+                        <t t-set="d_to" t-value="doc.date_to if is_wiz else max(payments.mapped('date'))"/>
 
                         <!-- Encabezado del Reporte SENIAT -->
                         <div class="row mb-3">

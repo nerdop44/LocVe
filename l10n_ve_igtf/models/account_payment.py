@@ -103,6 +103,9 @@ class AccountPaymentIgtf(models.Model):
                 payment.bi_igtf_bs = payment.amount * rate
                 payment.igtf_amount_bs = payment.igtf_amount * rate
 
+    def get_report_payments(self):
+        return self
+
     @api.depends('partner_id', 'amount', 'is_igtf_on_foreign_exchange')
     def _compute_igtf_percentage(self):
         for payment in self:
