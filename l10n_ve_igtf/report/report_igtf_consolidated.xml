@@ -1,25 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Action for PDF Report from Wizard -->
+    <!-- Action for PDF Report -->
     <record id="action_report_igtf_consolidated" model="ir.actions.report">
         <field name="name">Declaración Quincenal IGTF SENIAT (PDF)</field>
-        <field name="model">igtf.report.wizard</field>
-        <field name="report_type">qweb-pdf</field>
-        <field name="report_name">l10n_ve_igtf.report_igtf_consolidated_template</field>
-        <field name="report_file">l10n_ve_igtf.report_igtf_consolidated_template</field>
-        <field name="print_report_name">'Declaracion_IGTF_SENIAT_' + str(object.date_from or '').replace('-','') + '_' + str(object.date_to or '').replace('-','')</field>
-        <field name="binding_model_id" ref="model_igtf_report_wizard"/>
-        <field name="binding_type">report</field>
-    </record>
-
-    <!-- Action for PDF Report from Payment List View -->
-    <record id="action_report_igtf_payments_consolidated" model="ir.actions.report">
-        <field name="name">Imprimir Consolidado IGTF Seleccionados (PDF)</field>
         <field name="model">account.payment</field>
         <field name="report_type">qweb-pdf</field>
         <field name="report_name">l10n_ve_igtf.report_igtf_consolidated_template</field>
         <field name="report_file">l10n_ve_igtf.report_igtf_consolidated_template</field>
-        <field name="print_report_name">'Consolidado_IGTF_Pagos_SENIAT'</field>
+        <field name="print_report_name">'Declaracion_IGTF_SENIAT_' + str(getattr(object, 'date_from', '') or getattr(object, 'date', '')).replace('-','')</field>
         <field name="binding_model_id" ref="account.model_account_payment"/>
         <field name="binding_type">report</field>
     </record>
@@ -70,6 +58,7 @@
                                 <span><strong>Desde:</strong> <t t-esc="d_from"/> <strong>Hasta:</strong> <t t-esc="d_to"/></span>
                             </div>
                         </div>
+
                         <t t-set="cust_payments" t-value="payments.filtered(lambda p: p.payment_type == 'inbound')"/>
                         <t t-set="supp_payments" t-value="payments.filtered(lambda p: p.payment_type == 'outbound')"/>
 
