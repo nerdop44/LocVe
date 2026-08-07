@@ -172,161 +172,57 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
         return purchase_book_lines
 
     def _determinate_resume_books(self, moves, tax_type=None):
-        resume_lines = []
-
         def check_future_dates(move):
-            if move.date < self.date_from or move.date > self.date_to:
+            if not move.date:
                 return False
-            return True
+            return self.date_from <= move.date <= self.date_to
 
         def filter_credit_notes(move):
-            types = ["out_refund", "in_refund"]
-            return move.move_type in types
+            return move.move_type in ["out_refund", "in_refund"]
 
         moves = moves.filtered(check_future_dates)
         credit_notes = moves.filtered(filter_credit_notes)
-        moves -= credit_notes
+        regular_moves = moves - credit_notes
+
+        def get_totals(move_list, base_key, tax_key):
+            base_sum = 0.0
+            tax_sum = 0.0
+            for m in move_list:
+                d = self._determinate_amount_taxeds(m)
+                base_sum += abs(d.get(base_key, 0.0))
+                tax_sum += abs(d.get(tax_key, 0.0))
+            return base_sum, tax_sum
 
         if tax_type == "exempt_aliquot":
-            resume_lines.append(
-                sum(
-                    [
-                        self._determinate_amount_taxeds(move)["tax_base_exempt_aliquot"]
-                        for move in moves
-                    ]
-                )
-            )
-            resume_lines.append(
-                sum(
-                    [
-                        self._determinate_amount_taxeds(move)["amount_exempt_aliquot"]
-                        for move in moves
-                    ]
-                )
-            )
-            resume_lines.append(
-                sum(
-                    [
-                        self._determinate_amount_taxeds(note)["tax_base_exempt_aliquot"] * -1
-                        for note in credit_notes
-                    ]
-                )
-            )
-            resume_lines.append(
-                sum(
-                    [
-                        self._determinate_amount_taxeds(note)["amount_exempt_aliquot"] * -1
-                        for note in credit_notes
-                    ]
-                )
-            )
+            b_reg, t_reg = get_totals(regular_moves, "tax_base_exempt_aliquot", "amount_exempt_aliquot")
+            b_cn, t_cn = get_totals(credit_notes, "tax_base_exempt_aliquot", "amount_exempt_aliquot")
+            return [b_reg, t_reg, b_cn, t_cn]
 
-            return resume_lines
-        if tax_type == "general_aliquot":
-            resume_lines.append(
-                sum(
-                    [
-                        self._determinate_amount_taxeds(move)["tax_base_general_aliquot"]
-                        for move in moves
-                    ]
-                )
-            )
-            resume_lines.append(
-                sum(
-                    [
-                        self._determinate_amount_taxeds(move)["amount_general_aliquot"]
-                        for move in moves
-                    ]
-                )
-            )
-            resume_lines.append(
-                sum(
-                    [
-                        self._determinate_amount_taxeds(note)["tax_base_general_aliquot"] * -1
-                        for note in credit_notes
-                    ]
-                )
-            )
-            resume_lines.append(
-                sum(
-                    [
-                        self._determinate_amount_taxeds(note)["amount_general_aliquot"] * -1
-                        for note in credit_notes
-                    ]
-                )
-            )
+        elif tax_type == "general_aliquot":
+            b_reg, t_reg = get_totals(regular_moves, "tax_base_general_aliquot", "amount_general_aliquot")
+            b_cn, t_cn = get_totals(credit_notes, "tax_base_general_aliquot", "amount_general_aliquot")
+            return [b_reg, t_reg, b_cn, t_cn]
 
-            return resume_lines
-        if tax_type == "reduced_aliquot":
-            resume_lines.append(
-                sum(
-                    [
-                        self._determinate_amount_taxeds(move)["tax_base_reduced_aliquot"]
-                        for move in moves
-                    ]
-                )
-            )
-            resume_lines.append(
-                sum(
-                    [
-                        self._determinate_amount_taxeds(move)["amount_reduced_aliquot"]
-                        for move in moves
-                    ]
-                )
-            )
-            resume_lines.append(
-                sum(
-                    [
-                        self._determinate_amount_taxeds(note)["tax_base_reduced_aliquot"] * -1
-                        for note in credit_notes
-                    ]
-                )
-            )
-            resume_lines.append(
-                sum(
-                    [
-                        self._determinate_amount_taxeds(note)["amount_reduced_aliquot"] * -1
-                        for note in credit_notes
-                    ]
-                )
-            )
+        elif tax_type == "reduced_aliquot":
+            b_reg, t_reg = get_totals(regular_moves, "tax_base_reduced_aliquot", "amount_reduced_aliquot")
+            b_cn, t_cn = get_totals(credit_notes, "tax_base_reduced_aliquot", "amount_reduced_aliquot")
+            return [b_reg, t_reg, b_cn, t_cn]
 
-            return resume_lines
-        if tax_type == "extend_aliquot":
-            resume_lines.append(
-                sum(
-                    [
-                        self._determinate_amount_taxeds(move)["tax_base_extend_aliquot"]
-                        for move in moves
-                    ]
-                )
-            )
-            resume_lines.append(
-                sum(
-                    [
-                        self._determinate_amount_taxeds(move)["amount_extend_aliquot"]
-                        for move in moves
-                    ]
-                )
-            )
-            resume_lines.append(
-                sum(
-                    [
-                        self._determinate_amount_taxeds(note)["tax_base_extend_aliquot"] * -1
-                        for note in credit_notes
-                    ]
-                )
-            )
-            resume_lines.append(
-                sum(
-                    [
-                        self._determinate_amount_taxeds(note)["amount_extend_aliquot"] * -1
-                        for note in credit_notes
-                    ]
-                )
-            )
+        elif tax_type == "extend_aliquot":
+            b_reg, t_reg = get_totals(regular_moves, "tax_base_extend_aliquot", "amount_extend_aliquot")
+            b_cn, t_cn = get_totals(credit_notes, "tax_base_extend_aliquot", "amount_extend_aliquot")
+            return [b_reg, t_reg, b_cn, t_cn]
 
-            return resume_lines
+        elif tax_type == "total_period":
+            categories = ["exempt_aliquot", "general_aliquot", "reduced_aliquot", "extend_aliquot"]
+            t_b_reg, t_t_reg, t_b_cn, t_t_cn = 0.0, 0.0, 0.0, 0.0
+            for cat in categories:
+                res = self._determinate_resume_books(moves, cat)
+                t_b_reg += res[0]
+                t_t_reg += res[1]
+                t_b_cn += res[2]
+                t_t_cn += res[3]
+            return [t_b_reg, t_t_reg, t_b_cn, t_t_cn]
 
         return [0.0, 0.0, 0.0, 0.0]
 
@@ -695,17 +591,22 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
             {
                 "name": "Exportaciones Gravadas por Alícuota General",
                 "format": "number",
-                "values": self._determinate_resume_books(moves),
+                "values": self._determinate_resume_books(moves, "export_general"),
             },
             {
                 "name": "Exportaciones Gravadas por Alícuota General más Adicional",
                 "format": "number",
-                "values": self._determinate_resume_books(moves),
+                "values": self._determinate_resume_books(moves, "export_extend"),
             },
             {
                 "name": "Ventas Internas Gravadas sólo por Alícuota General",
                 "format": "number",
                 "values": self._determinate_resume_books(moves, "general_aliquot"),
+            },
+            {
+                "name": "Ventas Internas Gravadas por Alícuota General más Adicional",
+                "format": "number",
+                "values": self._determinate_resume_books(moves, "extend_aliquot"),
             },
             {
                 "name": "Ventas Internas Gravadas por Alícuota Reducida",
@@ -715,12 +616,12 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
             {
                 "name": "Ajustes a los Débitos Fiscales de Periodos Anteriores",
                 "format": "number",
-                "values": self._determinate_resume_books(moves),
+                "values": self._determinate_resume_books(moves, "previous_adjustments"),
             },
             {
                 "name": "Total Ventas y Débitos Fiscales del Periodo",
                 "format": "number",
-                "values": self._determinate_resume_books(moves),
+                "values": self._determinate_resume_books(moves, "total_period"),
                 "total": True,
             },
         ]
@@ -735,12 +636,12 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
             {
                 "name": "Importaciones Gravadas por Alícuota General",
                 "format": "number",
-                "values": self._determinate_resume_books(moves),
+                "values": self._determinate_resume_books(moves, "import_general"),
             },
             {
                 "name": "Importaciones Gravadas por Alícuota General más Adicional",
                 "format": "number",
-                "values": self._determinate_resume_books(moves),
+                "values": self._determinate_resume_books(moves, "import_extend"),
             },
             {
                 "name": "Compras Internas Gravadas sólo por Alícuota General",
@@ -760,12 +661,12 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
             {
                 "name": "Ajustes a los Créditos Fiscales de Periodos Anteriores",
                 "format": "number",
-                "values": self._determinate_resume_books(moves),
+                "values": self._determinate_resume_books(moves, "previous_adjustments"),
             },
             {
                 "name": "Total Compras y Créditos Fiscales del Periodo",
                 "format": "number",
-                "values": self._determinate_resume_books(moves),
+                "values": self._determinate_resume_books(moves, "total_period"),
                 "total": True,
             },
         ]
