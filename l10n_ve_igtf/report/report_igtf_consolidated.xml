@@ -39,7 +39,7 @@
                     </style>
 
                     <t t-set="payments" t-value="docs.get_report_payments() if hasattr(docs, 'get_report_payments') else docs"/>
-                    <t t-set="comp" t-value="payments[:1].company_id or env.company"/>
+                    <t t-set="comp" t-value="payments[:1].company_id if payments else docs[:1].company_id"/>
                     <t t-set="d_from" t-value="getattr(docs, 'date_from', False) or (payments and min(payments.mapped('date')) or '')"/>
                     <t t-set="d_to" t-value="getattr(docs, 'date_to', False) or (payments and max(payments.mapped('date')) or '')"/>
 
