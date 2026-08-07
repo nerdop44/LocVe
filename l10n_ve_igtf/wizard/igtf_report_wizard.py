@@ -59,8 +59,11 @@ class IgtfReportWizard(models.TransientModel):
     def get_report_payments(self):
         if not self:
             return self.env["account.payment"]
+        existing_self = self.exists()
+        if not existing_self:
+            return self.env["account.payment"].browse(self.ids).exists()
         payments = self.env["account.payment"]
-        for wiz in self:
+        for wiz in existing_self:
             payments |= self.env["account.payment"].search(wiz._get_domain(), order="date asc, id asc")
         return payments
 
