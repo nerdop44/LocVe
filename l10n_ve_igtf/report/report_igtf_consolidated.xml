@@ -27,13 +27,23 @@
     <!-- Main QWeb Template for Wizard and Selected Payments -->
     <template id="report_igtf_consolidated_template">
         <t t-call="web.html_container">
-            <t t-set="is_wiz" t-value="docs._name == 'igtf.report.wizard' and bool(env['igtf.report.wizard'].search([('id', 'in', docs.ids)]))"/>
-            <t t-set="payments" t-value="docs.get_report_payments() if is_wiz else (docs if docs._name == 'account.payment' else env['account.payment'].search([('id', 'in', docs.ids)]))"/>
-            <t t-set="comp" t-value="docs[:1].company_id if is_wiz else (payments[:1].company_id if payments else res_company)"/>
-            <t t-set="o" t-value="docs[:1] if is_wiz else (payments[:1] if payments else res_company)"/>
+            <t t-set="is_wiz" t-value="docs._name == 'igtf.report.wizard' and bool(docs.exists())"/>
+
+            <t t-if="is_wiz">
+                <t t-set="payments" t-value="docs.get_report_payments()"/>
+                <t t-set="comp" t-value="docs[:1].company_id"/>
+                <t t-set="d_from" t-value="min(docs.mapped('date_from')) if docs else ''"/>
+                <t t-set="d_to" t-value="max(docs.mapped('date_to')) if docs else ''"/>
+            </t>
+            <t t-else="">
+                <t t-set="real_payments" t-value="docs if docs._name == 'account.payment' else env['account.payment'].browse(docs.ids).exists()"/>
+                <t t-set="payments" t-value="real_payments"/>
+                <t t-set="comp" t-value="real_payments[:1].company_id if real_payments else res_company"/>
+                <t t-set="d_from" t-value="min(real_payments.mapped('date')) if real_payments else ''"/>
+                <t t-set="d_to" t-value="max(real_payments.mapped('date')) if real_payments else ''"/>
+            </t>
+
             <t t-set="company" t-value="comp"/>
-            <t t-set="d_from" t-value="(min(docs.mapped('date_from')) if is_wiz else min(payments.mapped('date'))) if (is_wiz or payments) else ''"/>
-            <t t-set="d_to" t-value="(max(docs.mapped('date_to')) if is_wiz else max(payments.mapped('date'))) if (is_wiz or payments) else ''"/>
 
             <t t-call="web.external_layout">
                 <div class="page" style="font-size: 10px; font-family: sans-serif;">
