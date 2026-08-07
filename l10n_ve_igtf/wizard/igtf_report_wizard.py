@@ -39,6 +39,7 @@ class IgtfReportWizard(models.TransientModel):
     )
 
     def _get_domain(self):
+        self.ensure_one()
         domain = [
             ("company_id", "=", self.company_id.id),
             ("date", ">=", self.date_from),
@@ -56,17 +57,22 @@ class IgtfReportWizard(models.TransientModel):
         return domain
 
     def get_report_payments(self):
-        self.ensure_one()
-        return self.env["account.payment"].search(self._get_domain(), order="date asc, id asc")
+        if not self:
+            return self.env["account.payment"]
+        payments = self.env["account.payment"]
+        for wiz in self:
+            payments |= self.env["account.payment"].search(wiz._get_domain(), order="date asc, id asc")
+        return payments
 
     def action_generate_report(self):
-        self.ensure_one()
         payments = self.get_report_payments()
+        d_from = min(self.mapped("date_from")) if self.mapped("date_from") else fields.Date.context_today(self)
+        d_to = max(self.mapped("date_to")) if self.mapped("date_to") else fields.Date.context_today(self)
         
         view_id = self.env.ref("l10n_ve_igtf.view_igtf_consolidated_payment_tree", raise_if_not_found=False)
         
         res = {
-            "name": _("Consolidado IGTF SENIAT (%s al %s)") % (self.date_from, self.date_to),
+            "name": _("Consolidado IGTF SENIAT (%s al %s)") % (d_from, d_to),
             "type": "ir.actions.act_window",
             "res_model": "account.payment",
             "view_mode": "list,form",
@@ -81,16 +87,14 @@ class IgtfReportWizard(models.TransientModel):
         return res
 
     def action_print_pdf(self):
-        self.ensure_one()
         return self.env.ref("l10n_ve_igtf.action_report_igtf_consolidated").report_action(self)
 
     def action_mark_as_declared(self):
-        self.ensure_one()
         payments = self.get_report_payments()
         if not payments:
             raise UserError(_("No se encontraron pagos con IGTF para el período seleccionado."))
         
-        ref = self.declaration_ref or _("DECL-IGTF-%s") % fields.Date.context_today(self).strftime("%Y%m%d")
+        ref = (self[:1].declaration_ref or "").strip() or _("DECL-IGTF-%s") % fields.Date.context_today(self).strftime("%Y%m%d")
         payments.write({
             "igtf_declaration_status": "declared",
             "igtf_declaration_ref": ref,

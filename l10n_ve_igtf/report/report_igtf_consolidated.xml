@@ -7,7 +7,7 @@
         <field name="report_type">qweb-pdf</field>
         <field name="report_name">l10n_ve_igtf.report_igtf_consolidated_template</field>
         <field name="report_file">l10n_ve_igtf.report_igtf_consolidated_template</field>
-        <field name="print_report_name">'Declaracion_IGTF_SENIAT_' + str(object.date_from or '').replace('-','') + '_' + str(object.date_to or '').replace('-','')</field>
+        <field name="print_report_name">'Declaracion_IGTF_SENIAT_' + str(object[:1].date_from or '').replace('-','') + '_' + str(object[:1].date_to or '').replace('-','')</field>
         <field name="binding_model_id" ref="model_igtf_report_wizard"/>
         <field name="binding_type">report</field>
     </record>
@@ -32,8 +32,8 @@
             <t t-set="comp" t-value="docs[:1].company_id if is_wiz else (payments[:1].company_id if payments else res_company)"/>
             <t t-set="o" t-value="docs[:1]"/>
             <t t-set="company" t-value="comp"/>
-            <t t-set="d_from" t-value="docs.date_from if is_wiz else (min(payments.mapped('date')) if payments else '')"/>
-            <t t-set="d_to" t-value="docs.date_to if is_wiz else (max(payments.mapped('date')) if payments else '')"/>
+            <t t-set="d_from" t-value="(min(docs.mapped('date_from')) if is_wiz else min(payments.mapped('date'))) if (is_wiz or payments) else ''"/>
+            <t t-set="d_to" t-value="(max(docs.mapped('date_to')) if is_wiz else max(payments.mapped('date'))) if (is_wiz or payments) else ''"/>
 
             <t t-call="web.external_layout">
                 <div class="page" style="font-size: 10px; font-family: sans-serif;">
