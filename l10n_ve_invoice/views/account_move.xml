@@ -173,13 +173,14 @@
 
 
 
-        <record id="locve_invoice_view_invoice_tree" model="ir.ui.view">
-            <field name="name">account.move.tree.locve.invoice</field>
+        <record id="locve_invoice_view_in_invoice_tree" model="ir.ui.view">
+            <field name="name">account.move.in.invoice.tree.locve</field>
             <field name="model">account.move</field>
-            <field name="inherit_id" ref="account.view_invoice_tree"/>
+            <field name="inherit_id" ref="account.view_in_invoice_tree"/>
             <field name="arch" type="xml">
-                <xpath expr="//field[@name='name']" position="after">
-                    <field name="correlative" optional="hide"/>
+                <xpath expr="//field[@name='amount_total_signed']" position="after">
+                    <field name="foreign_amount_total" string="Total Bs." optional="show"/>
+                    <field name="iva_voucher_number" string="Comprobante IVA" optional="show"/>
                 </xpath>
             </field>
         </record>

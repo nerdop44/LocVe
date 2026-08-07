@@ -44,7 +44,7 @@
         <field name="inherit_id" ref="account.view_invoice_tree"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='name']" position="after">
-                <field name="correlative" optional="hide"/>
+                <field name="correlative" column_invisible="1"/>
             </xpath>
         </field>
     </record>

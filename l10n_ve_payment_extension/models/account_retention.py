@@ -773,16 +773,18 @@ class AccountRetention(models.Model):
             if move.move_type in ("in_refund", "out_refund"):
                 payment_type = "inbound" if partner_type == "supplier" else "outbound"
 
-            # Moneda del pago: VEF (Regla universal venezolana)
+            # Moneda del pago y conciliación limpia con la factura
             lines._compute_line_amounts()
             _, _, currency_vef, _ = self._get_retention_currencies()
-            # Monto en VEF
             total_retention_vef = sum(lines.mapped("foreign_retention_amount"))
-            # Tasa
+            total_retention_usd = sum(lines.mapped("retention_amount"))
             foreign_rate = lines[0].foreign_currency_rate if lines else 1.0
 
             if currency_vef.is_zero(total_retention_vef):
                 continue
+
+            pay_currency = move.currency_id if (move and move.currency_id) else currency_vef
+            pay_amount = total_retention_usd if pay_currency == self.company_id.currency_id else total_retention_vef
 
             # Odoo 18: las cuentas outstanding suelen estar en la payment_method_line o usar la default del diario
             pm_account_id = payment_method_line.payment_account_id.id if payment_method_line and hasattr(payment_method_line, 'payment_account_id') else False
@@ -801,8 +803,6 @@ class AccountRetention(models.Model):
                 "outstanding_account_id": outstanding_account_id,
                 "foreign_rate": foreign_rate,
                 "tax_today": foreign_rate,
-                "currency_id": currency_vef.id,
-                "amount": total_retention_vef,
                 "date": self.date_accounting or fields.Date.context_today(self),
                 "retention_line_ids": [(6, 0, lines.ids)],
             }

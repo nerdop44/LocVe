@@ -78,8 +78,11 @@ class AccountPaymentRegister(models.TransientModel):
                 # Payment expressed on company's currency
                 wizard.amount = wizard.source_amount / tasa_a_usar
             elif wizard.currency_id == wizard.company_id.currency_id_dif:
-                # Payment expressed on reference currency
-                wizard.amount = wizard.source_amount * tasa_a_usar
+                # Payment expressed on reference currency (Bs.)
+                if wizard.company_id.currency_id.name == 'USD':
+                    wizard.amount = wizard.source_amount / tasa_a_usar if wizard.source_currency_id == wizard.company_id.currency_id else wizard.source_amount
+                else:
+                    wizard.amount = wizard.source_amount * tasa_a_usar
             else:
                 # Fallback
                 wizard.amount = wizard.amount_residual_usd
