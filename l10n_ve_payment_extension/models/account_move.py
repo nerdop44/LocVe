@@ -184,10 +184,6 @@ class AccountMoveRetention(models.Model):
         retention to be created.
         """
         self.ensure_one()
-##########
-        if not self.env.context.get('force_single', False):
-            raise UserError(_("This method should be called in a single record context."))
-######
         if not self.env.company.islr_supplier_retention_journal_id:
             raise UserError(_("The company must have a journal for ISLR supplier retention."))
         islr_retention = self.retention_islr_line_ids
@@ -209,11 +205,6 @@ class AccountMoveRetention(models.Model):
         at least one tax, in order for the IVA retention to be created.
         """
         self.ensure_one()
-##########
-        if not self.env.context.get('force_single', False):
-            raise UserError(_("This method should be called in a single record context."))
-############
-
         if not self.env.company.iva_supplier_retention_journal_id:
             raise UserError(_("The company must have a journal for IVA supplier retention."))
         if not any(self.invoice_line_ids.mapped("tax_ids").filtered(lambda x: x.amount > 0)):
@@ -225,10 +216,6 @@ class AccountMoveRetention(models.Model):
         municipal retention to be created.
         """
         self.ensure_one()
-###########
-        if not self.env.context.get('force_single', False):
-            raise UserError(_("This method should be called in a single record context."))
-#######
         if not self.env.company.municipal_supplier_retention_journal_id:
             raise UserError(_("The company must have a journal for municipal supplier retention."))
 

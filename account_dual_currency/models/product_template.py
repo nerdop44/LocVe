@@ -63,10 +63,12 @@ class Productos(models.Model):
         for rec in self:
             company = rec.company_id or rec.env.company
             if company.currency_id.name == 'USD':
-                rec.list_price_usd = rec.list_price
+                val = rec.list_price
             else:
                 tasa = company.currency_id_dif.get_trm_systray() if company.currency_id_dif else 0.0
-                rec.list_price_usd = rec.list_price / tasa if tasa > 0 else rec.list_price
+                val = rec.list_price / tasa if tasa > 0 else rec.list_price
+            if abs(rec.list_price_usd - val) > 1e-5:
+                rec.list_price_usd = val
 
     @api.depends('standard_price_usd', 'company_id.currency_id')
     def _compute_standard_price(self):
@@ -82,10 +84,12 @@ class Productos(models.Model):
         for rec in self:
             company = rec.company_id or rec.env.company
             if company.currency_id.name == 'USD':
-                rec.standard_price_usd = rec.standard_price
+                val = rec.standard_price
             else:
                 tasa = company.currency_id_dif.get_trm_systray() if company.currency_id_dif else 0.0
-                rec.standard_price_usd = rec.standard_price / tasa if tasa > 0 else rec.standard_price
+                val = rec.standard_price / tasa if tasa > 0 else rec.standard_price
+            if abs(rec.standard_price_usd - val) > 1e-5:
+                rec.standard_price_usd = val
 
     # Campos secundarios calculados para visualización (siempre en Bs)
     list_price_bs = fields.Monetary(
