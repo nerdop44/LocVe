@@ -59,15 +59,20 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
         # Resolución de factura afectada: NC usa reversed_entry_id, ND usa debit_origin_id
         affected_name = "--"
         if move.reversed_entry_id:
-            affected_name = move.reversed_entry_id.name
+            affected_name = move.reversed_entry_id.name or "--"
         elif hasattr(move, 'debit_origin_id') and move.debit_origin_id:
-            affected_name = move.debit_origin_id.name
+            affected_name = move.debit_origin_id.name or "--"
+        
+        control_num = move.correlative or getattr(move, 'nro_ctrl', None) or getattr(move, 'l10n_ve_control_number', None) or "--"
+        if not control_num or str(control_num).strip().lower() in ('false', 'none', ''):
+            control_num = "--"
+
         return {
             "_id": move.id,
             "document_date": self._format_date(move.invoice_date),
             "accounting_date": self._format_date(move.date),
-            "vat": move.vat,
-            "partner_name": move.invoice_partner_display_name,
+            "vat": move.vat or (move.partner_id.vat if move.partner_id else "--"),
+            "partner_name": move.invoice_partner_display_name or (move.partner_id.name if move.partner_id else "--"),
             "document_number": move.name,
             "invoice_number": move.name if doc_type == "FAC" else "--",
             "debit_number": move.name if doc_type == "ND" else "--",
@@ -75,7 +80,7 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
             "move_type": doc_type,
             "transaction_type": self._determinate_transaction_type(move),
             "number_invoice_affected": affected_name,
-            "correlative": move.correlative,
+            "correlative": control_num,
             "reduced_aliquot": 0.08,
             "general_aliquot": 0.16,
             "total_sales_iva": taxes.get("amount_untaxed", 0) + taxes.get("amount_taxed", 0),
@@ -90,23 +95,33 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
     def _fields_purchase_book_line(self, move, taxes):
         if not move.invoice_date:
             raise UserError(_("Check the move %s does not have an invoice date and its id is %s", move.name, move.id))
-        # Resolución de factura afectada: NC usa reversed_entry_id, ND usa debit_origin_id
+        doc_type = self._determinate_type(move.move_type)
+        # En compras: el Nro de Documento del Proveedor es ref si está presente
+        doc_number = (move.ref and str(move.ref).strip()) or move.name
+        
+        # Resolución de Nro de Control del Proveedor
+        control_num = move.correlative or getattr(move, 'nro_ctrl', None) or getattr(move, 'l10n_ve_control_number', None) or getattr(move, 'ref', None) or "--"
+        if not control_num or str(control_num).strip().lower() in ('false', 'none', ''):
+            control_num = "--"
+
+        # Resolución de factura afectada en Compras: NC/ND de proveedor
         affected_name = "--"
         if move.reversed_entry_id:
-            affected_name = move.reversed_entry_id.name
+            affected_name = move.reversed_entry_id.ref or move.reversed_entry_id.name or "--"
         elif hasattr(move, 'debit_origin_id') and move.debit_origin_id:
-            affected_name = move.debit_origin_id.name
+            affected_name = move.debit_origin_id.ref or move.debit_origin_id.name or "--"
+
         fields_purchase_book_line = {
             "_id": move.id,
             "document_date": self._format_date(move.invoice_date),
             "accounting_date": self._format_date(move.date),
-            "vat": move.vat,
-            "partner_name": move.invoice_partner_display_name,
-            "document_number": move.ref or move.name,
-            "move_type": self._determinate_type(move.move_type),
+            "vat": move.vat or (move.partner_id.vat if move.partner_id else "--"),
+            "partner_name": move.invoice_partner_display_name or (move.partner_id.name if move.partner_id else "--"),
+            "document_number": doc_number,
+            "move_type": doc_type,
             "transaction_type": self._determinate_transaction_type(move),
             "number_invoice_affected": affected_name,
-            "correlative": move.correlative,
+            "correlative": control_num,
             "reduced_aliquot": 0.08,
             "extend_aliquot": 0.31,
             "general_aliquot": 0.16,

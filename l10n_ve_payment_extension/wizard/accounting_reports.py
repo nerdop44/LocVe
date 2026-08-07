@@ -271,4 +271,6 @@ class WizardAccountingReports(models.TransientModel):
             return usd_val if is_check_currency_system else ves_val
 
     def _check_future_retention_dates(self, cmp_date):
+        if not cmp_date:
+            return False
         return cmp_date < self.date_from or cmp_date > self.date_to
