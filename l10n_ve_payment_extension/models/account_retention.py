@@ -999,6 +999,13 @@ class AccountRetention(models.Model):
             payment.compute_retention_amount_from_retention_lines()
 
     def action_draft(self):
+        is_admin = self.env.su or self.env.user.has_group('base.group_system') or self.env.user.has_group('account.group_account_manager')
+        ctx_debug = self.env.context.get('debug') or self.env.context.get('params', {}).get('debug')
+        is_debug_mode = bool(ctx_debug) or self.env.su
+
+        if not (is_admin and is_debug_mode):
+            raise UserError(_("La acción 'Convertir a Borrador' en Comprobantes de Retención está restringida exclusivamente para Administradores del Sistema con el Modo Desarrollador (Debug Mode) activo."))
+
         self.write({"state": "draft"})
 
     def action_reset_retention(self):

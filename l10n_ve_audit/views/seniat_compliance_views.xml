@@ -20,7 +20,7 @@
             <field name="binding_model_id" eval="False"/>
         </record>
 
-        <!-- 4. Hide Preview and Reset to Draft buttons on account.move -->
+        <!-- 4. Restrict Reset to Draft button on account.move to system administrator in developer mode -->
         <record id="view_move_form_hide_preview" model="ir.ui.view">
             <field name="name">account.move.form.hide.preview</field>
             <field name="model">account.move</field>
@@ -30,7 +30,7 @@
                     <attribute name="invisible">1</attribute>
                 </xpath>
                 <xpath expr="//button[@name='button_draft']" position="attributes">
-                    <attribute name="invisible">1</attribute>
+                    <attribute name="groups">base.group_no_one,base.group_system</attribute>
                 </xpath>
             </field>
         </record>
@@ -53,7 +53,7 @@
         </record>
 
 
-        <!-- 5. Hide Preview and Reset to Draft buttons on sale.order and show billing alert -->
+        <!-- 5. Hide Preview and restrict Reset to Draft button on sale.order -->
         <record id="view_order_form_hide_preview" model="ir.ui.view">
             <field name="name">sale.order.form.hide.preview</field>
             <field name="model">sale.order</field>
@@ -63,7 +63,7 @@
                     <attribute name="invisible">1</attribute>
                 </xpath>
                 <xpath expr="//button[@name='action_draft']" position="attributes">
-                    <attribute name="invisible">1</attribute>
+                    <attribute name="groups">base.group_no_one,base.group_system</attribute>
                 </xpath>
                 <xpath expr="//sheet" position="before">
                     <div class="alert alert-warning text-center mb-0" role="alert" invisible="invoice_status != 'to invoice'">
@@ -73,14 +73,14 @@
             </field>
         </record>
 
-        <!-- 6. Hide Reset to Draft button on purchase.order -->
+        <!-- 6. Restrict Reset to Draft button on purchase.order -->
         <record id="view_purchase_form_hide_draft" model="ir.ui.view">
             <field name="name">purchase.order.form.hide.draft</field>
             <field name="model">purchase.order</field>
             <field name="inherit_id" ref="purchase.purchase_order_form"/>
             <field name="arch" type="xml">
                 <xpath expr="//button[@name='button_draft']" position="attributes">
-                    <attribute name="invisible">1</attribute>
+                    <attribute name="groups">base.group_no_one,base.group_system</attribute>
                 </xpath>
             </field>
         </record>

@@ -9,7 +9,7 @@
 				<form string="Retención Municipal">
 					<header>
 						<button name="action_print_municipal_retention_xlsx" type="object" string="Imprimir Retención Municipal XLSX"/>
-						<button name="action_draft" type="object" invisible="state != 'cancel'" string="Convertir a borrador"/>
+						<button name="action_draft" type="object" invisible="state != 'cancel'" string="Convertir a borrador" groups="base.group_no_one,base.group_system"/>
 						<button name="action_post" type="object" invisible="state != 'draft'" string="Aprobar" class="oe_highlight"/>
 						<button name="action_cancel" type="object" invisible="state != 'emitted'" string="Cancelar" 
 								confirm="¿Está seguro de cancelar este comprobante? Los asientos contables asociados serán revertidos."/>

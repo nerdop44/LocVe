@@ -784,9 +784,48 @@ class WizardAccountingReportsLocVeInvoice(models.TransientModel):
                 else:
                     tax_result["amount_general_aliquot"] += signed_tax
 
-        # 4. Asignar totales generales operacionales
-        tax_result["amount_untaxed"] = total_untaxed_bs * multiplier
-        tax_result["amount_taxed"] = total_tax_bs * multiplier
+        # 4. Asignar totales generales operacionales sincronizados con el encabezado bimonetario global
+        # Esto elimina descalces de centavos entre Pantalla, PDF y Libros Fiscales
+        header_untaxed_bs = abs(getattr(move, 'amount_untaxed_bs', 0.0) or 0.0)
+        header_tax_bs = abs(getattr(move, 'amount_tax_bs', 0.0) or 0.0)
+        
+        if header_untaxed_bs > 0.0:
+            final_untaxed_bs = header_untaxed_bs
+            # Ajustar la alícuota general o exenta si hubo redondeos por línea
+            sum_bases = (tax_result["tax_base_exempt_aliquot"] + tax_result["tax_base_reduced_aliquot"] + 
+                         tax_result["tax_base_general_aliquot"] + tax_result["tax_base_extend_aliquot"])
+            diff_base = (final_untaxed_bs * multiplier) - sum_bases
+            if abs(diff_base) > 0.0001:
+                if tax_result["tax_base_general_aliquot"] != 0:
+                    tax_result["tax_base_general_aliquot"] += diff_base
+                elif tax_result["tax_base_exempt_aliquot"] != 0:
+                    tax_result["tax_base_exempt_aliquot"] += diff_base
+                elif tax_result["tax_base_reduced_aliquot"] != 0:
+                    tax_result["tax_base_reduced_aliquot"] += diff_base
+                elif tax_result["tax_base_extend_aliquot"] != 0:
+                    tax_result["tax_base_extend_aliquot"] += diff_base
+                else:
+                    tax_result["tax_base_general_aliquot"] = final_untaxed_bs * multiplier
+        else:
+            final_untaxed_bs = total_untaxed_bs
+
+        if header_tax_bs > 0.0 or (move.amount_tax == 0.0 and header_tax_bs == 0.0):
+            final_tax_bs = header_tax_bs
+            sum_taxes = (tax_result["amount_exempt_aliquot"] + tax_result["amount_reduced_aliquot"] + 
+                         tax_result["amount_general_aliquot"] + tax_result["amount_extend_aliquot"])
+            diff_tax = (final_tax_bs * multiplier) - sum_taxes
+            if abs(diff_tax) > 0.0001:
+                if tax_result["amount_general_aliquot"] != 0 or tax_result["tax_base_general_aliquot"] != 0:
+                    tax_result["amount_general_aliquot"] += diff_tax
+                elif tax_result["amount_reduced_aliquot"] != 0:
+                    tax_result["amount_reduced_aliquot"] += diff_tax
+                elif tax_result["amount_extend_aliquot"] != 0:
+                    tax_result["amount_extend_aliquot"] += diff_tax
+        else:
+            final_tax_bs = total_tax_bs
+
+        tax_result["amount_untaxed"] = final_untaxed_bs * multiplier
+        tax_result["amount_taxed"] = final_tax_bs * multiplier
         
         # 5. Calcular IGTF percibido de los pagos asociados si aplica
         payments_igtf = 0.0

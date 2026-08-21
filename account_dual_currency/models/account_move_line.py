@@ -116,23 +116,25 @@ class AccountMoveLine(models.Model):
         for line in self:
             line.balance_usd = line.debit_usd - line.credit_usd
 
-    @api.depends('price_unit', 'product_id', 'move_id.currency_id', 'move_id.tax_today')
+    @api.depends('price_unit', 'product_id', 'move_id.currency_id', 'move_id.tax_today', 'company_currency_id')
     def _price_unit_usd(self):
         for rec in self:
             rate = rec.move_id.tax_today or rec.move_id.foreign_rate or 1.0
             if rec.price_unit > 0:
-                if rec.move_id.currency_id and rec.move_id.currency_id.name == 'USD':
+                is_doc_usd = rec.move_id.currency_id and rec.move_id.currency_id.name == 'USD'
+                if is_doc_usd:
                     rec.price_unit_usd = rec.price_unit
                 else:
                     rec.price_unit_usd = (rec.price_unit / rate) if rate > 0 else 0
             else:
                 rec.price_unit_usd = 0
 
-    @api.depends('price_subtotal', 'tax_today')
+    @api.depends('price_subtotal', 'tax_today', 'move_id.currency_id', 'company_currency_id')
     def _price_subtotal_usd(self):
         for rec in self:
             if rec.price_subtotal > 0:
-                if rec.move_id.currency_id.name == 'USD':
+                is_doc_usd = rec.move_id.currency_id and rec.move_id.currency_id.name == 'USD'
+                if is_doc_usd:
                     rec.price_subtotal_usd = rec.price_subtotal
                 else:
                     rec.price_subtotal_usd = (rec.price_subtotal / rec.tax_today) if rec.tax_today > 0 else 0

@@ -46,10 +46,17 @@ class AccountMove(models.Model):
         return post_result
 
     def button_draft(self):
+        is_admin = self.env.su or self.env.user.has_group('base.group_system') or self.env.user.has_group('account.group_account_manager')
+        ctx_debug = self.env.context.get('debug') or self.env.context.get('params', {}).get('debug')
+        is_debug_mode = bool(ctx_debug) or self.env.su
+
+        if not (is_admin and is_debug_mode):
+            raise UserError(_("La acción 'Restablecer a Borrador' está restringida exclusivamente para Administradores del Sistema con el Modo Desarrollador (Debug Mode) activo."))
+
         res = super(AccountMove, self).button_draft()
         for move in self:
             if move.move_type in ['out_invoice', 'in_invoice', 'out_refund', 'in_refund', 'out_receipt', 'in_receipt']:
-                details = f"Documento devuelto al estado Borrador. Nombre anterior: {move.name}. Control anterior: {move.correlative}."
+                details = f"Documento devuelto al estado Borrador por Administrador en Modo Desarrollador. Nombre anterior: {move.name}. Control anterior: {move.correlative}."
                 self.env['l10n_ve.audit.log'].log_event('draft', move, details)
         return res
 

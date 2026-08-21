@@ -79,6 +79,13 @@ class AccountPayment(models.Model):
 
     def action_draft(self):
         ''' posted -> draft '''
+        is_admin = self.env.su or self.env.user.has_group('base.group_system') or self.env.user.has_group('account.group_account_manager')
+        ctx_debug = self.env.context.get('debug') or self.env.context.get('params', {}).get('debug')
+        is_debug_mode = bool(ctx_debug) or self.env.su
+
+        if not (is_admin and is_debug_mode):
+            raise UserError(_("La acción 'Restablecer a Borrador' en Pagos está restringida exclusivamente para Administradores del Sistema con el Modo Desarrollador (Debug Mode) activo."))
+
         res = super().action_draft()
         self.move_id_dif.button_draft()
         if self.move_id_igtf_divisa:
