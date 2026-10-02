@@ -46,7 +46,7 @@ class L10nVeAuditLog(models.Model):
         """Método helper para registrar eventos contables rápidamente."""
         # Se ejecuta con sudo() para que los triggers de auditoría funcionen incluso si el usuario tiene restricciones
         # Pero el user_id asignado sigue siendo el usuario real de la sesión (self.env.user)
-        name = getattr(record, 'name', '')
+        name = (getattr(record, 'name', '') or '')
         if hasattr(record, 'correlative') and record.correlative:
             name += f" (Control: {record.correlative})"
         elif hasattr(record, 'l10n_ve_guide_number') and record.l10n_ve_guide_number:

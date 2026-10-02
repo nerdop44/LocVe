@@ -78,6 +78,15 @@ class AccountMoveLine(models.Model):
         for line in self:
             if not line.product_id or line.display_type:
                 continue
+
+            # Preservar precio en facturas y notas de crédito de proveedor
+            # (provengan de Orden de Compra, ingreso manual o archivo de importación)
+            if line.move_id.move_type in ('in_invoice', 'in_refund'):
+                if line.purchase_line_id:
+                    line.price_unit = line.purchase_line_id.price_unit
+                # Si no viene de compra, se conserva el price_unit asignado por super() o ingreso manual
+                continue
+
             rate = line.move_id.tax_today or 1.0
             master_usd = line.product_id.list_price_usd or 0.0
             company = line.company_id or line.env.company

@@ -47,7 +47,7 @@ class AccountMove(models.Model):
             else:
                 move.l10n_ve_is_fully_refunded = False
 
-    @api.constrains('invoice_line_ids', 'invoice_line_ids.price_unit')
+    @api.constrains('invoice_line_ids')
     def _check_move_line_price_unit_positive(self):
         for move in self:
             if move.move_type in ('out_invoice', 'out_refund', 'in_invoice', 'in_refund'):
@@ -94,7 +94,7 @@ class AccountMove(models.Model):
 #    )
 #    # FIN DE LAS MODIFICACIONES SUGERIDAS
    
-    @api.constrains("correlative", "journal_id.is_contingency")
+    @api.constrains("correlative", "journal_id")
     def _check_correlative(self):
         AccountMove = self.env["account.move"]
         is_series_invoicing_enabled = self.company_id.group_sales_invoicing_series
@@ -365,7 +365,7 @@ class AccountMove(models.Model):
                         "No se puede aplicar una Nota de Crédito en Forma Libre a una factura originada en Punto de Venta (Máquina Fiscal)."
                     ))
 
-    @api.constrains('invoice_line_ids', 'invoice_line_ids.tax_ids')
+    @api.constrains('invoice_line_ids')
     def _check_refund_taxes(self):
         for move in self:
             if move.move_type == 'out_refund' and move.journal_id.l10n_ve_is_free_form and move.reversed_entry_id:
@@ -383,7 +383,7 @@ class AccountMove(models.Model):
                                 "Debe mantener la alícuota fiscal histórica de la factura original."
                             ))
 
-    @api.constrains('invoice_line_ids', 'invoice_line_ids.price_unit', 'invoice_line_ids.quantity', 'reversed_entry_id')
+    @api.constrains('invoice_line_ids', 'reversed_entry_id')
     def _check_refund_amounts_and_quantities(self):
         for move in self:
             if move.move_type in ('out_refund', 'in_refund') and move.reversed_entry_id:
