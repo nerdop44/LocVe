@@ -63,7 +63,7 @@ class AccountMove(models.Model):
 
     acuerdo_moneda = fields.Boolean(string="Acuerdo de Factura Bs.", default=False)
 
-    tax_today = fields.Float(string="Tasa de Factura", store=True, readonly=False,
+    tax_today = fields.Float(string="Tasa de Factura", digits=(16, 4), store=True, readonly=False,
                              compute='_compute_tax_today',
                              default=lambda self: (self.env.company.currency_id_dif.get_trm_systray() if self.env.company.currency_id_dif else 1.0),
                              tracking=True)

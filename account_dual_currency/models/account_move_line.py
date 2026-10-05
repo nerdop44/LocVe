@@ -19,7 +19,7 @@ class AccountMoveLine(models.Model):
                                  readonly=False, )
     credit_usd = fields.Monetary(currency_field='currency_id_dif', string='Crédito $', store=True,
                                  compute="_credit_usd", readonly=False)
-    tax_today = fields.Float(related="move_id.tax_today", store=True, string="Tasa del Asiento")
+    tax_today = fields.Float(related="move_id.tax_today", digits=(16, 4), store=True, string="Tasa del Asiento")
     currency_id_dif = fields.Many2one("res.currency", related="move_id.currency_id_dif", store=True)
     price_unit_usd = fields.Monetary(currency_field='currency_id_dif', string='Precio $', store=True,
                                      compute='_price_unit_usd', readonly=False)
@@ -72,20 +72,49 @@ class AccountMoveLine(models.Model):
             else:
                 rec.price_unit = rec.price_unit_usd * rate
 
-    @api.depends('product_id', 'move_id.currency_id', 'move_id.tax_today')
+    @api.depends('product_id', 'move_id.currency_id', 'move_id.tax_today', 'purchase_line_id', 'sale_line_ids')
     def _compute_price_unit(self):
         super()._compute_price_unit()
         for line in self:
             if not line.product_id or line.display_type:
                 continue
 
-            # Preservar precio en facturas y notas de crédito de proveedor
-            # (provengan de Orden de Compra, ingreso manual o archivo de importación)
+            # Preservar precio en facturas y notas de crédito de proveedor desde PO
             if line.move_id.move_type in ('in_invoice', 'in_refund'):
                 if line.purchase_line_id:
-                    line.price_unit = line.purchase_line_id.price_unit
-                # Si no viene de compra, se conserva el price_unit asignado por super() o ingreso manual
-                continue
+                    po_curr = line.purchase_line_id.currency_id
+                    inv_curr = line.move_id.currency_id
+                    po_price = line.purchase_line_id.price_unit
+                    if not po_curr or not inv_curr or po_curr == inv_curr:
+                        line.price_unit = po_price
+                    else:
+                        rate = line.move_id.tax_today or 1.0
+                        if inv_curr.name == 'USD' and po_curr.name != 'USD':
+                            line.price_unit = po_price / rate if rate else 0.0
+                        elif inv_curr.name != 'USD' and po_curr.name == 'USD':
+                            line.price_unit = po_price * rate
+                        else:
+                            line.price_unit = po_price
+                    continue
+
+            # Preservar precio en facturas y notas de crédito de cliente desde SO
+            if line.move_id.move_type in ('out_invoice', 'out_refund'):
+                if line.sale_line_ids:
+                    so_line = line.sale_line_ids[0]
+                    so_curr = so_line.currency_id
+                    inv_curr = line.move_id.currency_id
+                    so_price = so_line.price_unit
+                    if not so_curr or not inv_curr or so_curr == inv_curr:
+                        line.price_unit = so_price
+                    else:
+                        rate = line.move_id.tax_today or 1.0
+                        if inv_curr.name == 'USD' and so_curr.name != 'USD':
+                            line.price_unit = so_price / rate if rate else 0.0
+                        elif inv_curr.name != 'USD' and so_curr.name == 'USD':
+                            line.price_unit = so_price * rate
+                        else:
+                            line.price_unit = so_price
+                    continue
 
             rate = line.move_id.tax_today or 1.0
             master_usd = line.product_id.list_price_usd or 0.0
