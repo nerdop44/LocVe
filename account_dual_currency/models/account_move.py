@@ -242,20 +242,35 @@ class AccountMove(models.Model):
             company = rec.company_id or rec.env.company
             is_usd_company = company.currency_id.name == 'USD'
             for line in rec.invoice_line_ids:
-                if line.product_id:
-                    # Corregir desincronización de UI de price_unit_usd si es igual a price_unit en facturas VES
-                    if is_usd_company and rec.currency_id.name != 'USD':
-                        if line.price_unit_usd == line.price_unit or line.price_unit_usd > (line.product_id.list_price_usd * 2.0 if line.product_id.list_price_usd else 1000.0):
-                            line.price_unit_usd = line.product_id.list_price_usd or 0.0
+                if not line.product_id or line.display_type:
+                    continue
+                # Preservar precio si viene de PO o SO o si ya tiene un price_unit definido
+                if line.purchase_line_id or line.sale_line_ids:
+                    if line.price_unit and not line.price_unit_usd:
+                        line.price_unit_usd = line.price_unit / rate if (rate > 0 and rec.currency_id.name != 'USD') else line.price_unit
+                    elif line.price_unit_usd and not line.price_unit:
+                        line.price_unit = line.price_unit_usd if rec.currency_id.name == 'USD' else (line.price_unit_usd * rate)
+                    continue
 
+                if line.price_unit and not line.price_unit_usd:
+                    line.price_unit_usd = line.price_unit / rate if (rate > 0 and rec.currency_id.name != 'USD') else line.price_unit
+
+                if line.price_unit_usd:
                     if rec.currency_id.name == 'USD':
-                        line.price_unit = line.price_unit_usd or line.product_id.list_price_usd or 0.0
+                        line.price_unit = line.price_unit_usd
                     else:
-                        price_usd = line.price_unit_usd or line.product_id.list_price_usd or 0.0
-                        line.price_unit = price_usd * rate
-                    line._debit_usd()
-                    line._credit_usd()
-                    line._price_subtotal_usd()
+                        line.price_unit = line.price_unit_usd * rate
+                elif line.product_id.list_price_usd:
+                    master_usd = line.product_id.list_price_usd
+                    if rec.currency_id.name == 'USD':
+                        line.price_unit = master_usd
+                    else:
+                        line.price_unit = master_usd * rate
+                # Si line.price_unit ya tenía un valor (ej. desde Odoo base), NO sobreescribirlo a 0.0
+
+                line._debit_usd()
+                line._credit_usd()
+                line._price_subtotal_usd()
 
 
     @api.model_create_multi
@@ -355,30 +370,40 @@ class AccountMove(models.Model):
                 is_usd_company = company.currency_id.name == 'USD'
                 
                 for l in rec.invoice_line_ids:
+                    if not l.product_id or l.display_type:
+                        continue
+                    # Si proviene de PO o SO, preservar o sincronizar sin poner en 0
+                    if l.purchase_line_id or l.sale_line_ids:
+                        if l.price_unit and not l.price_unit_usd:
+                            l.price_unit_usd = l.price_unit / rate if (rate > 0 and rec.currency_id.name != 'USD') else l.price_unit
+                        elif l.price_unit_usd and not l.price_unit:
+                            l.price_unit = l.price_unit_usd if rec.currency_id.name == 'USD' else (l.price_unit_usd * rate)
+                        continue
+
                     if is_usd_company:
                         if rec.currency_id.name == 'USD':
                             if l.price_unit:
                                 l.price_unit_usd = l.price_unit
-                            else:
+                            elif l.price_unit_usd:
                                 l.price_unit = l.price_unit_usd
                         else:
                             if l.price_unit:
-                                if l.price_unit_usd == l.price_unit or l.price_unit_usd > (l.product_id.list_price_usd * 2.0 if l.product_id.list_price_usd else 1000.0):
+                                if not l.price_unit_usd or l.price_unit_usd == l.price_unit:
                                     l.price_unit_usd = l.price_unit / rate if rate > 0 else 0.0
                                 else:
                                     l.price_unit = l.price_unit_usd * rate
-                            else:
+                            elif l.price_unit_usd:
                                 l.price_unit = l.price_unit_usd * rate
                     else:
                         if rec.currency_id == rec.company_id.currency_id:
                             if l.price_unit:
                                 l.price_unit_usd = l.price_unit / rate if rate > 0 else 0.0
-                            else:
+                            elif l.price_unit_usd:
                                 l.price_unit = l.price_unit_usd * rate
                         else:
                             if l.price_unit:
                                 l.price_unit_usd = l.price_unit
-                            else:
+                            elif l.price_unit_usd:
                                 l.price_unit = l.price_unit_usd
                 rec._onchange_quick_edit_total_amount()
                 rec._onchange_quick_edit_line_ids()
