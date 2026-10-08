@@ -416,8 +416,7 @@
                             A los efectos de lo previsto en el <strong>Art. 25</strong> de la Ley de
                             Impuesto al Valor Agregado se expresa el monto total
                             de la factura en <strong>USD</strong> calculado a la tasa de cambio
-                            establecida por BCV de 1US$ por <strong><t t-out="rate" t-options='{"widget": "monetary", "display_currency": vef_currency}'/></strong>
-
+                            establecida por BCV de 1US$ por <strong><t t-out="rate" t-options='{"widget": "float", "precision": 4}'/> Bs.</strong>
                         </span>
                     </div>
 
